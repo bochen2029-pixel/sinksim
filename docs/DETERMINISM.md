@@ -49,6 +49,14 @@ founder at 9440.5 s).
    written into the file, and regenerated only after a recorded physics change.
 5. Calibration objectives are built from interpolated curves, never from event crossing times.
 
+## The C runtime
+
+`Math.pow` in the oracle is the platform CRT's `pow`. The parallel session that verified `v8math` against 260,009
+Node samples found the agreement to hold with the static MSVC runtime, so the engine links the static runtime
+(`CMAKE_MSVC_RUNTIME_LIBRARY` in the root `CMakeLists.txt`). The 1912 run uses `pow` only with the exponents 1.5 and
+0.385 over a narrow range of ratios and was exact with either runtime; the static one removes the dependency on
+whichever UCRT DLL a machine happens to have.
+
 ## Re-verifying the math on a new machine or compiler
 
 `third_party/fdlibm/build-msvc.cmd` regenerates Node's reference samples and compares fdlibm, the CRT and the `v8math`
