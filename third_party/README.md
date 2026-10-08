@@ -30,10 +30,10 @@ the UCRT, which the engine also links, so `std::pow` matches; on Linux glibc may
 why the golden trace shipped with the original package differs from a Node 24 regeneration on this machine by one ulp in one
 hull coordinate (docs/DETERMINISM.md).
 
-The engine selects this math with the CMake cache variable `SINKSIM_MATH` (`v8`, the default, or `std` for the platform
-`<cmath>`); see `engine/include/sinksim/kernel/math.hpp`. CUDA device code cannot call these host functions and uses the
-device math library instead; the GPU build is therefore compared with the CPU reference at tolerance, or fdlibm is compiled
-as device code (roadmap phase 2).
+The engine exposes this as the `oracle` numerics (`engine/include/sinksim/kernel/math.hpp`). Device code cannot call
+these host functions, so `engine/include/sinksim/kernel/fdlibm_portable.hpp` carries a host-and-device transliteration
+of fdlibm's sin, cos, pow and scalbn (held bit for bit against the build here by `tests/test_portable_math.cpp`); it is
+the `portable` numerics the GPU computes and the CPU can reproduce exactly (ADR 0006).
 
 ## Re-verifying after a Node or compiler change
 

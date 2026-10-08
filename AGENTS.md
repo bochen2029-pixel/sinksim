@@ -32,8 +32,10 @@ Everything that crosses a boundary is a versioned file format or a plain-data st
 2. **The oracle does not change.** If it must, record the reason in an ADR, update `oracle/MANIFEST.sha256`, regenerate
    every compiled file and golden trace, and say so in `docs/DETERMINISM.md`.
 3. **Determinism is a build property.** Strict floating point (`cmake/StrictFloatingPoint.cmake`), fixed-order
-   reductions, no atomics in the hot path, the vendored math (`SINKSIM_MATH=v8`). Do not add `-ffast-math`, `/fp:fast`
-   or contraction anywhere physics is compiled.
+   reductions, no atomics in the hot path, transcendental functions only through the math policies in
+   `kernel/math.hpp`. Do not add `-ffast-math`, `/fp:fast` or contraction anywhere physics is compiled, on the host or
+   the device. The GPU computes the portable numerics and is checked against the CPU with tolerance zero; anything
+   that changes those bits gets a new portable reference trace.
 4. **State is explicit.** The complete dynamic state is pose, rates, volumes, levels and centroids
    (`StateSnapshot`). Anything that persists across steps belongs in it and in the trace format.
 5. **Formats are versioned.** `docs/FORMATS.md` is the contract; the engine refuses unknown versions and hash
@@ -59,7 +61,8 @@ Everything that crosses a boundary is a versioned file format or a plain-data st
 Build and test on Windows:
 
 ```
-tools\build\msvc.cmd all            # configure + build + ctest for the msvc-release preset
+tools\build\msvc.cmd all                      # configure + build + ctest for the msvc-release preset
+tools\build\msvc.cmd all msvc-cuda-release    # the same with the CUDA batch engine and its parity tests
 tools\build\msvc.cmd build msvc-debug
 ```
 
@@ -67,8 +70,8 @@ Elsewhere: `cmake --preset gcc-release && cmake --build --preset gcc-release && 
 
 Regenerate data from the oracle (Node 24): `npm run export`, `npm run golden`, `npm run perstep`, `npm run validate:oracle`.
 
-Command-line tools after a build (`build/<preset>/bin/`): `sinksim_run`, `sinksim_check`, `sinksim_validate`; each
-prints its usage when called without arguments.
+Command-line tools after a build (`build/<preset>/bin/`): `sinksim_run`, `sinksim_check`, `sinksim_validate`,
+`sinksim_cuda_run`; each prints its usage when called without arguments, and each takes `--numerics`.
 
 ## Sessions and decisions
 

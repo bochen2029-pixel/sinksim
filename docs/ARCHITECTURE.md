@@ -35,26 +35,37 @@ produce the compiled files and the golden trace that the engine is tested agains
 |---|---|
 | `types.hpp` | views over the compiled arrays, the per-step records, `State`, `Scratch`, `Outputs`, `EventLog` |
 | `scheme.hpp` | the numerical constants of scheme v1 |
-| `math.hpp` | the only place transcendental functions are called; implementation chosen at build time |
+| `math.hpp` | the math policies `OracleMath`, `PortableMath`, `StdMath`; the only place transcendental functions are called |
+| `fdlibm_portable.hpp` | fdlibm's sin, cos, pow and scalbn as host-and-device functions |
+| `reduce.hpp` | partials and the canonical reduction tree shared by the GPU and its CPU emulation |
 | `frame.hpp` | rotation and translation of the pose |
-| `hydro.hpp` | the column integrals: buoyancy of the envelope, water in a node below a level; the serial pass functor |
-| `levels.hpp` | free-surface solves for single nodes and shared-surface groups, driven by a pass functor |
-| `flows.hpp` | effective heads and areas, degrees, orifice and weir flows with the limiter, volume update |
+| `hydro.hpp` | the column integrals in serial order and in tree order; the pass functors |
+| `levels.hpp` | free-surface solves for single nodes and shared-surface groups, driven by a pass functor; one entry per group |
+| `flows.hpp` | per-node and per-connection pieces of the flow phase, the incidence gather, the volume update; the serial driver |
 | `body.hpp` | loads and the rigid-body integration |
 | `events.hpp` | monitors, marks, the founder rule |
-| `step.hpp` | the step, in the oracle's order |
+| `step.hpp` | the step, in the oracle's order, templated on the math policy and the reduction order |
 | `readouts.hpp` | trim, list, drafts, tonnes |
 
 Rules: no allocation, no exceptions, no virtual calls, no standard containers; everything the step needs arrives
 through `ShipView`, `SimView`, `State`, `Scratch`. The pass functor seam is where the GPU substitutes a
-block-cooperative column reduction.
+warp-cooperative column reduction.
+
+## The GPU
+
+`engine/cuda/device_step.cuh` runs the same functions in one thread block per simulation: thread 0 sets the pose;
+every thread sums its share of columns and the warps combine in the canonical order; each warp solves whole groups
+with a warp-cooperative node pass; threads take nodes and connections for the flow phase; thread 0 runs the serial
+tail (excess, loads, integration, events) exactly as the CPU does. `engine/cuda/batch.cu` owns the device memory,
+launches in bounded chunks and assembles results and traces; `sinksim/cuda/batch.hpp` is the CUDA-free interface.
 
 ## The host side
 
-`model.hpp` owns the arrays (`CompiledShip`, `CompiledSim`) and defines `StateSnapshot`. `io/compiled.*` loads the
-files and verifies every hash; `io/trace.*` reads and writes traces; `io/json.*` wraps nlohmann with the project's
-layout and number formatting. `simulation.*` binds views, drives steps, records traces, applies actions and offers
-diagnostics. Apps are thin wrappers: run, check, validate.
+`model.hpp` owns the arrays (`CompiledShip`, `CompiledSim`), defines `StateSnapshot` and derives the incidence
+lists. `io/compiled.*` loads the files and verifies every hash; `io/trace.*` reads and writes traces; `io/json.*`
+wraps nlohmann with the project's layout and number formatting. `simulation.*` binds views, drives steps with the
+chosen `Numerics`, records traces, applies actions and offers diagnostics. Apps are thin wrappers: run, check,
+validate, and the CUDA batch runner.
 
 ## Data flow of a check
 
@@ -72,8 +83,8 @@ diagnostics. Apps are thin wrappers: run, check, validate.
   engine does not know what a bulkhead or a deck is; those are groups, connections, monitors and marks.
 - **A new scheme variant** (implicit flows, capacity tables): a new header beside the existing one, selected at the
   step level, with its own scheme version, golden trace and calibration.
-- **The GPU**: block-per-simulation driver, gather-ordered accumulation, pass functors over shared memory; same
-  solver and body code.
+- **Mixed precision on the GPU**: single-precision partials in `reduce.hpp` with the CPU emulating them, a new
+  portable reference trace, no change to the solvers.
 - **WebAssembly**: the same engine library compiled with Emscripten, exposing load, step, restore and snapshot.
 - **Actions**: only connection fields change (`en`, `area`, `tOn`), so rollouts never reallocate.
 

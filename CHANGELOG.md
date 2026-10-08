@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 (2026-10-08)
+
+- Portable numerics: fdlibm's sin, cos, pow and scalbn as host-and-device functions, the canonical reduction tree
+  with CPU emulation, and `Numerics` (oracle, portable, std) chosen per simulation; `--numerics` on every tool.
+- The flow phase split into per-node and per-connection pieces with an incidence gather (same bits as before).
+- The portable reference trace and its test; the oracle and portable checks pass exactly on Windows and Linux.
+- CUDA batch engine (`SINKSIM_ENABLE_CUDA`, preset `msvc-cuda-release`): one block per simulation, chunked launches,
+  per-instance connection fields and state, traces; `sinksim_cuda_run`; tests holding the GPU bit for bit to the CPU.
+- Static MSVC runtime; language-guarded strict floating-point flags; ADR 0006.
+
 ## 0.1.0 (2026-10-08)
 
 First public version.
