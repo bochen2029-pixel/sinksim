@@ -1,0 +1,27 @@
+# Build trees (CMake presets build under build/<preset>)
+/build/
+/build-*/
+/cmake-build-*/
+
+# Editor and OS noise
+/.vs/
+/.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Node and Python tooling
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local scratch and logs (never commit)
+/scratch/
+*.log
+*.tmp
+
+# Vendored fdlibm: build output and the 14 MB Node reference file its verification generates
+/third_party/fdlibm/build-msvc-x64/
+/third_party/fdlibm/verify/ref_node.txt

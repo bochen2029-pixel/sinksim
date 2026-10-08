@@ -1,0 +1,16 @@
+# Normalise line endings: LF in the repository, LF on checkout, except Windows batch files.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+
+# Generated data: keep it diffable but out of GitHub language statistics and collapsed in diffs.
+ships/**/*.json linguist-generated=true
+data/**/*.json linguist-generated=true
+oracle/js/out/** linguist-generated=true

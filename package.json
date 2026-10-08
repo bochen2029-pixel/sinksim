@@ -1,0 +1,18 @@
+{
+  "name": "sinksim-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node-side tooling for sinksim: drives the frozen JS oracle to export compiled ships, golden traces and validation tables. The engine itself is C++ and has no Node dependency.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "export": "node tools/js/export_compiled.js",
+    "golden": "node tools/js/golden.js",
+    "perstep": "node tools/js/perstep.js",
+    "validate:oracle": "node tools/js/validate_oracle.js",
+    "test": "node --test \"tests/js/**/*.test.js\""
+  },
+  "license": "MIT"
+}
