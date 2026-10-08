@@ -82,9 +82,10 @@ void print_worst(const char* title, const Worst& w, int count) {
 int main(int argc, char** argv) {
   const cli::Args args = cli::Args::parse(argc, argv, {"quiet"});
   if (args.positional.size() < 3) {
-    std::fprintf(stderr, "usage: sinksim_check <ship.json> <sim.json> <reference.trace.json> [--tol-step X] [--tol-window X] [--tol-founder S] [--tol-event S] [--quiet]\n");
+    std::fprintf(stderr, "usage: sinksim_check <ship.json> <sim.json> <reference.trace.json> [--numerics oracle|portable|std] [--tol-step X] [--tol-window X] [--tol-founder S] [--tol-event S] [--quiet]\n");
     return 2;
   }
+  const Numerics numerics = cli::numerics_from(args);
   const double tolStep = args.num("tol-step", 0), tolWindow = args.num("tol-window", 0);
   const double tolFounder = args.num("tol-founder", 1.0), tolEvent = args.num("tol-event", 30.0);
   const bool quiet = args.flag("quiet");
@@ -97,8 +98,9 @@ int main(int argc, char** argv) {
       std::printf("warning: reference trace is for %s/%s, checking %s/%s\n", ref.ship.c_str(), ref.sim.c_str(), ship->id.c_str(), sim.id.c_str());
     if (ref.nodes != ship->nodes()) throw std::runtime_error("reference trace node count differs from the ship");
     if (ref.dt != sim.dt) throw std::runtime_error("reference trace dt differs from the simulation");
-    std::printf("sinksim_check: %s / %s against %s\n  reference produced by %s, %s\n", ship->id.c_str(), sim.id.c_str(), args.positional[2].c_str(), ref.producer.c_str(), ref.engine.c_str());
-    Simulation S(ship, sim);
+    std::printf("sinksim_check: %s / %s with %s numerics against %s\n  reference produced by %s, %s\n", ship->id.c_str(), sim.id.c_str(), numerics_name(numerics),
+                args.positional[2].c_str(), ref.producer.c_str(), ref.engine.c_str());
+    Simulation S(ship, sim, numerics);
 
     // 0. the initial record must be the compiled initial state
     {

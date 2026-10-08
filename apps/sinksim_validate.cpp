@@ -20,9 +20,10 @@ namespace fs = std::filesystem;
 int main(int argc, char** argv) {
   const cli::Args args = cli::Args::parse(argc, argv, {});
   if (args.positional.empty()) {
-    std::fprintf(stderr, "usage: sinksim_validate <catalog.json> [--compare validation.oracle.json] [--out validation.engine.json]\n");
+    std::fprintf(stderr, "usage: sinksim_validate <catalog.json> [--numerics oracle|portable|std] [--compare validation.oracle.json] [--out validation.engine.json]\n");
     return 2;
   }
+  const Numerics numerics = cli::numerics_from(args);
   try {
     const fs::path catalogPath = args.positional[0];
     const std::string cat = catalogPath.string();
@@ -43,7 +44,7 @@ int main(int argc, char** argv) {
       const std::string label = json::string(cs, "label", cat);
       const CompiledSim sim = io::load_sim((dir / json::string(cs, "file", cat)).string());
       io::check_pairing(*ship, sim);
-      Simulation S(ship, sim);
+      Simulation S(ship, sim, numerics);
       RunOptions opt;
       opt.tMax = json::number_or(cs, "tMaxH", 8) * 3600;
       opt.every = 30;
@@ -105,7 +106,7 @@ int main(int argc, char** argv) {
       doc["format"] = "sinksim.validation";
       doc["formatVersion"] = 1;
       doc["ship"] = ship->id;
-      doc["producer"] = "sinksim_validate (C++ reference engine)";
+      doc["producer"] = std::string("sinksim_validate (C++ engine, numerics ") + numerics_name(numerics) + ")";
       doc["cases"] = outCases;
       json::write_file(args.get("out", ""), doc, 2);
       std::printf("wrote %s\n", args.get("out", "").c_str());

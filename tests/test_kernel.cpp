@@ -1,4 +1,5 @@
-// Kernel unit tests on a synthetic box barge whose hydrostatics are known in closed form.
+// Kernel unit tests on a synthetic box barge whose hydrostatics are known in closed form, run with the oracle
+// numerics and with the portable numerics (GPU reduction order), which must agree to rounding.
 #include <cmath>
 #include <vector>
 
@@ -24,9 +25,11 @@ struct Rig {
   std::vector<Real> gpx, gpy, gpz;
   std::vector<Index> ca, cb, cIdx, cSkip, cMon;
   std::vector<Byte> cLaw, cKind, cEn;
-  std::vector<Real> cx, cy, cz, cArea, cCoef, cTOn, q;
+  std::vector<Real> cx, cy, cz, cArea, cCoef, cTOn, q, dV;
+  std::vector<Index> incStart, incCount, incConn, incSea;
+  std::vector<Byte> incSide;
   // state and scratch
-  std::vector<Real> vol, level, area, ccx, ccy, ccz, zmin, zmax, hEff, aEff, acc;
+  std::vector<Real> vol, level, area, ccx, ccy, ccz, zmin, zmax, hEff, aEff, acc, excess;
   std::vector<Index> deg;
   std::vector<Byte> merged;
   std::vector<NodePass> passes;
@@ -70,7 +73,7 @@ struct Rig {
     }
     const auto nn = static_cast<std::size_t>(parts);
     vol.assign(nn, 0); level.assign(nn, 0); area.assign(nn, 0); ccx.assign(nn, 0); ccy.assign(nn, 0); ccz.assign(nn, 0);
-    zmin.assign(nn, 0); zmax.assign(nn, 0); hEff.assign(nn, 0); aEff.assign(nn, 0); acc.assign(nn, 0); deg.assign(nn, 0);
+    zmin.assign(nn, 0); zmax.assign(nn, 0); hEff.assign(nn, 0); aEff.assign(nn, 0); acc.assign(nn, 0); excess.assign(nn, 0); deg.assign(nn, 0);
     merged.assign(gCount.size(), 0); passes.assign(nn, NodePass{});
     st.t = 0; st.zO = -T; st.pitch = 0; st.roll = 0; st.vz = 0; st.wth = 0; st.wph = 0;
     overT[0] = -1; markT[0] = -1;
@@ -79,10 +82,26 @@ struct Rig {
   void connect(Index a, Index b, FlowLaw law, Real px, Real py, Real pz, Real areaOrWidth, Real coef) {
     ca.push_back(a); cb.push_back(b); cLaw.push_back(static_cast<Byte>(law)); cx.push_back(px); cy.push_back(py); cz.push_back(pz);
     cArea.push_back(areaOrWidth); cCoef.push_back(coef); cKind.push_back(0); cIdx.push_back(-1); cEn.push_back(1); cTOn.push_back(0);
-    cSkip.push_back(-1); cMon.push_back(-1); q.push_back(0);
+    cSkip.push_back(-1); cMon.push_back(-1); q.push_back(0); dV.push_back(0);
+  }
+
+  void build_incidence() {
+    const std::size_t nn = vol.size();
+    incCount.assign(nn, 0); incStart.assign(nn, 0); incConn.clear(); incSide.clear(); incSea.clear();
+    for (std::size_t c = 0; c < ca.size(); ++c) { if (ca[c] >= 0) incCount[static_cast<std::size_t>(ca[c])]++; incCount[static_cast<std::size_t>(cb[c])]++; }
+    Index total = 0;
+    for (std::size_t n = 0; n < nn; ++n) { incStart[n] = total; total += incCount[n]; }
+    incConn.assign(static_cast<std::size_t>(total), -1); incSide.assign(static_cast<std::size_t>(total), 0);
+    std::vector<Index> fill(nn, 0);
+    for (std::size_t c = 0; c < ca.size(); ++c) {
+      if (ca[c] >= 0) { const auto n = static_cast<std::size_t>(ca[c]); const auto k = static_cast<std::size_t>(incStart[n] + fill[n]++); incConn[k] = static_cast<Index>(c); incSide[k] = 0; }
+      else incSea.push_back(static_cast<Index>(c));
+      const auto n = static_cast<std::size_t>(cb[c]); const auto k = static_cast<std::size_t>(incStart[n] + fill[n]++); incConn[k] = static_cast<Index>(c); incSide[k] = 1;
+    }
   }
 
   void bind() {
+    build_incidence();
     S.cols = ColumnsView{static_cast<Index>(x.size()), x.data(), y.data(), dxdy.data(), zlo.data(), zhi.data()};
     S.segs = SegmentsView{static_cast<Index>(segCol.size()), segCol.data(), segA.data(), segE.data()};
     S.nodes = NodesView{static_cast<Index>(mu.size()), mu.data(), vmax.data(), amin.data(), aov.data(), segStart.data(), segCount.data()};
@@ -91,6 +110,7 @@ struct Rig {
     M.groups = GroupsView{static_cast<Index>(gCount.size()), gStart.data(), gCount.data(), gNodes.data(), gMode.data(), gpx.data(), gpy.data(), gpz.data(), 0.05};
     M.conns = ConnectionsView{static_cast<Index>(ca.size()), ca.data(), cb.data(), cLaw.data(), cx.data(), cy.data(), cz.data(), cArea.data(), cCoef.data(),
                               cKind.data(), cIdx.data(), cEn.data(), cTOn.data(), cSkip.data(), cMon.data(), q.data()};
+    M.inc = IncidenceView{incStart.data(), incCount.data(), incConn.data(), incSide.data(), static_cast<Index>(incSea.size()), incSea.data()};
     M.monitors = MonitorsView{0, 0.05};
     M.marks = MarksView{0, nullptr, nullptr, nullptr, nullptr};
     M.founder = FounderRule{-1e9, 10, -1, 1e9};
@@ -104,13 +124,19 @@ struct Rig {
     const Real cDz = 2 * 0.6 * std::sqrt(Kz * mh0), cDth = 2 * 0.6 * std::sqrt(Kth * Ith0), cDph = 2 * 0.6 * std::sqrt(Kph * Iph0);
     M.body = Body{ms, 0, 0, 0, 0, 0, 0, mh0, Ith0, Iph0, cDz, cDth, cDph, 0, 0, 0};
     st.vol = vol.data(); st.level = level.data();
-    sc = Scratch{area.data(), ccx.data(), ccy.data(), ccz.data(), zmin.data(), zmax.data(), hEff.data(), aEff.data(), acc.data(), deg.data(), merged.data(), passes.data(), nullptr};
+    sc = Scratch{area.data(), ccx.data(), ccy.data(), ccz.data(), zmin.data(), zmax.data(), hEff.data(), aEff.data(), acc.data(), excess.data(),
+                 deg.data(), merged.data(), passes.data(), nullptr, dV.data()};
     ev = EventLog{evItems, 1, 0, overT, markT, 0, -1};
   }
 
-  Frame frame() const { return kernel::pose_frame(M.body, st.zO, st.pitch, st.roll); }
+  Frame frame() const { return kernel::pose_frame<OracleMath>(M.body, st.zO, st.pitch, st.roll); }
   Real total() const { Real s = 0; for (const Real v : vol) s += v; return s; }
 };
+
+template <class Math, bool Tree>
+void breach_run(Rig& rig, int steps) {
+  for (int i = 0; i < steps; ++i) kernel::step<Math, Tree>(rig.S, rig.M, rig.st, rig.sc, rig.out, rig.ev);
+}
 
 }  // namespace
 
@@ -118,7 +144,7 @@ int main() {
   // Rotation matrices are orthonormal and the translation reduces to heave when the origin is at g0 = 0.
   {
     Body b{};
-    const Frame F = kernel::pose_frame(b, 3.5, 0.1, -0.2);
+    const Frame F = kernel::pose_frame<OracleMath>(b, 3.5, 0.1, -0.2);
     const Real r[3][3] = {{F.R00, F.R01, F.R02}, {F.R10, F.R11, F.R12}, {F.R20, F.R21, F.R22}};
     for (int i = 0; i < 3; ++i)
       for (int j = 0; j < 3; ++j) {
@@ -128,8 +154,12 @@ int main() {
       }
     CHECK_EQ(F.tz, 3.5);
     CHECK_NEAR(kernel::world_z(F, 0, 0, 0), 3.5, 0.0);
+    // the three math policies agree on the pose to rounding
+    const Frame P = kernel::pose_frame<PortableMath>(b, 3.5, 0.1, -0.2), Q = kernel::pose_frame<StdMath>(b, 3.5, 0.1, -0.2);
+    CHECK_EQ(F.R22, P.R22);
+    CHECK_NEAR(F.R22, Q.R22, 1e-15);
   }
-  // Buoyancy of a box at even keel
+  // Buoyancy of a box at even keel, in both summation orders
   {
     Rig rig(100, 20, 10, 4, 5, 1, 2, false);
     rig.bind();
@@ -139,6 +169,10 @@ int main() {
     CHECK_NEAR(hb.x, 0.0, 1e-9);
     CHECK_NEAR(hb.y, 0.0, 1e-9);
     CHECK_NEAR(hb.top, 10.0 - 4, 1e-12);
+    const Buoyancy ht = kernel::hydro_pass_tree<kernel::kBlockThreads>(rig.S.cols, rig.frame());
+    CHECK_NEAR(ht.V, hb.V, 1e-9);
+    CHECK_NEAR(ht.z, hb.z, 1e-12);
+    CHECK_EQ(ht.top, hb.top);
     // node 0 is the aft half (x from -50 to 0): at world level -1 the water stands 3 m deep in it
     const NodePass p = kernel::node_pass(rig.S, rig.frame(), 0, -1);
     CHECK_NEAR(p.vol, 50.0 * 20 * 3, 1e-9);
@@ -146,6 +180,11 @@ int main() {
     CHECK_NEAR(p.zmin, -4.0, 1e-12);
     CHECK_NEAR(p.zmax, 6.0, 1e-12);
     CHECK_NEAR(p.mx, p.vol * -25.0, 1e-6);
+    const NodePass pt = kernel::node_pass_tree<kernel::kWarpLanes>(rig.S, rig.frame(), 0, -1);
+    CHECK_NEAR(pt.vol, p.vol, 1e-9);
+    CHECK_NEAR(pt.dv, p.dv, 1e-9);
+    CHECK_EQ(pt.zmin, p.zmin);
+    CHECK_EQ(pt.zmax, p.zmax);
   }
   // Free-surface solve: a known volume gives back the level that produced it
   {
@@ -186,7 +225,7 @@ int main() {
     const Frame F = rig.frame();
     const kernel::SerialPasser pass{rig.S, F};
     kernel::solve_levels(rig.S.nodes, rig.M.groups, F, pass, false, rig.st, rig.sc);
-    const Real seaIn = kernel::compute_flows(rig.S, rig.M, F, rig.st, rig.sc);
+    const Real seaIn = kernel::compute_flows<OracleMath>(rig.S, rig.M, F, rig.st, rig.sc);
     CHECK_EQ(seaIn, 0.0);
     CHECK(rig.q[0] > 0);
     CHECK(rig.acc[1] > 0);
@@ -194,13 +233,14 @@ int main() {
     CHECK(rig.acc[1] <= 2000);
   }
   // A breach into the forward half lets the sea in; the inflow accounting matches the water that appears; a
-  // floor-level orifice passes water aft; the barge settles deeper and by the head
-  {
+  // floor-level orifice passes water aft; the barge settles deeper and by the head. Both numerics agree.
+  Real totalOracle = 0, pitchOracle = 0;
+  for (int pass = 0; pass < 2; ++pass) {
     Rig rig(100, 20, 10, 4, 5, 1, 2, false);
     rig.connect(-1, 1, FlowLaw::Orifice, 40, -10, 1.0, 0.5, 0.6);   // sea -> forward node, 3 m below the waterline
     rig.connect(1, 0, FlowLaw::Orifice, 0, 0, 0.0, 1.0, 0.6);       // forward -> aft, at floor level amidships
     rig.bind();
-    kernel::step(rig.S, rig.M, rig.st, rig.sc, rig.out, rig.ev);
+    if (pass == 0) breach_run<OracleMath, false>(rig, 1); else breach_run<PortableMath, true>(rig, 1);
     CHECK_EQ(rig.st.t, kDt);
     CHECK(rig.vol[1] > 0);
     CHECK_EQ(rig.vol[0], 0.0);
@@ -210,7 +250,7 @@ int main() {
     CHECK(std::fabs(rig.st.vz) < 1e-3);
     Real seaTotal = rig.out.inflow * kDt;
     for (int i = 0; i < 1200; ++i) {
-      kernel::step(rig.S, rig.M, rig.st, rig.sc, rig.out, rig.ev);
+      if (pass == 0) breach_run<OracleMath, false>(rig, 1); else breach_run<PortableMath, true>(rig, 1);
       seaTotal += rig.out.inflow * kDt;
     }
     CHECK(rig.vol[0] > 0);
@@ -219,9 +259,14 @@ int main() {
     CHECK(rig.st.zO < -4);   // she sits deeper with water aboard
     CHECK(rig.st.pitch > 0); // and by the head, the breach being forward
     CHECK_EQ(rig.ev.foundered, static_cast<Byte>(0));
-    const kernel::Readouts r = kernel::readouts(rig.S, rig.M, ReadoutGeometry{50, -50}, rig.st, rig.out);
+    const kernel::Readouts r = kernel::readouts<OracleMath>(rig.S, rig.M, ReadoutGeometry{50, -50}, rig.st, rig.out);
     CHECK_NEAR(r.waterT, rig.total() * kRho / 1000, 1e-9);
     CHECK(r.draftF > r.draftA);
+    if (pass == 0) { totalOracle = rig.total(); pitchOracle = rig.st.pitch; }
+    else {
+      CHECK_NEAR(rig.total(), totalOracle, 1e-6 * totalOracle);
+      CHECK_NEAR(rig.st.pitch, pitchOracle, 1e-9);
+    }
   }
   return test::finish("test_kernel");
 }

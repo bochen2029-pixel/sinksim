@@ -85,6 +85,18 @@ struct ConnectionsView {
   Real* q;                 // output: m3/s through the connection this step
 };
 
+// Connections incident to each node (CSR, in increasing connection order) and the sea connections in order.
+// Derived from the connection table; it makes the per-node accumulation a gather with the same summation order
+// as a scatter in connection order, on the CPU and on the GPU alike.
+struct IncidenceView {
+  const Index* start;   // per node
+  const Index* count;   // per node
+  const Index* conn;    // connection index
+  const Byte* side;     // 1 when the node is the b end (receives +dV), 0 when it is the a end (-dV)
+  Index seaCount;
+  const Index* sea;     // connections with a = -1, in increasing order
+};
+
 struct MonitorsView {
   Index n;
   Real threshold;  // m3/s: an overflow event fires the first time a monitor's flow exceeds this
@@ -135,6 +147,7 @@ struct SimView {
   Real dt;
   GroupsView groups;
   ConnectionsView conns;
+  IncidenceView inc;
   MonitorsView monitors;
   MarksView marks;
   FounderRule founder;
@@ -170,7 +183,7 @@ struct Loads {
 
 // ----------------------------------------------------------------------------- state
 
-// Everything the next step depends on. vol and level have one entry per node.
+// Everything the next step depends on, together with the centroids in Scratch. vol and level have one entry per node.
 struct State {
   Real t, zO, pitch, roll;
   Real vz, wth, wph;
@@ -178,10 +191,11 @@ struct State {
   Real* level;
 };
 
-// Recomputed every step; kept because readouts, events and the viewer use them.
+// Per-step working storage. The centroids persist between steps and are part of the state (docs/DETERMINISM.md);
+// everything else is recomputed every step and kept because readouts, events and the viewer use it.
 struct Scratch {
   Real* area;       // per node: free-surface area at the solved level
-  Real* cx;         // per node: water centroid, ship frame
+  Real* cx;         // per node: water centroid, ship frame (state)
   Real* cy;
   Real* cz;
   Real* zmin;       // per node: world extent
@@ -189,10 +203,12 @@ struct Scratch {
   Real* hEff;       // per node: effective head (kNoHead when empty)
   Real* aEff;       // per node: effective free-surface area for the limiter
   Real* acc;        // per node: volume change this step
+  Real* excess;     // per node: volume returned to the sea by the pressed-up cap this step
   Index* deg;       // per node: active connections this step
   Byte* merged;     // per group
-  NodePass* passes; // scratch for group solves, >= largest group
+  NodePass* passes; // scratch for group solves, >= largest group (per solver instance)
   Real* over;       // per monitor
+  Real* dV;         // per connection: volume moved this step, a -> b positive
 };
 
 struct Outputs {

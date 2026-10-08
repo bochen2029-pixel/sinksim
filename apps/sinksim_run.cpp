@@ -1,5 +1,5 @@
 // sinksim_run: run one compiled simulation and report what happened; optionally write a trace.
-//   sinksim_run <ship.json> <sim.json> [--tmax S] [--every S] [--stop-when-stable]
+//   sinksim_run <ship.json> <sim.json> [--numerics oracle|portable|std] [--tmax S] [--every S] [--stop-when-stable]
 //                                      [--trace out.json] [--dense N] [--sample-every S] [--history]
 #include <chrono>
 #include <cstdio>
@@ -17,21 +17,21 @@ using namespace sinksim;
 int main(int argc, char** argv) {
   const cli::Args args = cli::Args::parse(argc, argv, {"stop-when-stable", "history"});
   if (args.positional.size() < 2) {
-    std::fprintf(stderr, "usage: sinksim_run <ship.json> <sim.json> [--tmax S] [--every S] [--stop-when-stable] [--trace out.json] [--dense N] [--sample-every S] [--history]\n");
+    std::fprintf(stderr, "usage: sinksim_run <ship.json> <sim.json> [--numerics oracle|portable|std] [--tmax S] [--every S] [--stop-when-stable] [--trace out.json] [--dense N] [--sample-every S] [--history]\n");
     return 2;
   }
+  const Numerics numerics = cli::numerics_from(args);
   try {
     const auto ship = io::load_ship(args.positional[0]);
     const CompiledSim sim = io::load_sim(args.positional[1]);
     io::check_pairing(*ship, sim);
     std::printf("ship %s: %d columns, %d segments, %d nodes\n", ship->id.c_str(), ship->columns(), ship->segments(), ship->nodes());
-    std::printf("sim  %s: %s; %d groups, %d connections, dt %g s\n", sim.id.c_str(), sim.title.c_str(), sim.groups(), sim.connections(), sim.dt);
-    Simulation S(ship, sim);
+    std::printf("sim  %s: %s; %d groups, %d connections, dt %g s; numerics %s\n", sim.id.c_str(), sim.title.c_str(), sim.groups(), sim.connections(), sim.dt, numerics_name(numerics));
+    Simulation S(ship, sim, numerics);
 
     const auto t0 = std::chrono::steady_clock::now();
     if (args.has("trace")) {
       io::Trace tr = S.record_trace(args.num("tmax", 5 * 3600), static_cast<int>(args.num("dense", 400)), args.num("sample-every", 60));
-      tr.producer = "sinksim_run (C++ reference engine)";
       tr.engine = "sinksim " + std::to_string(kEngineVersion.major) + "." + std::to_string(kEngineVersion.minor) + "." + std::to_string(kEngineVersion.patch);
       const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
       io::save_trace(tr, args.get("trace", "trace.json"));

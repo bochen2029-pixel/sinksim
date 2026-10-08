@@ -15,8 +15,13 @@ target_include_directories(sinksim_engine PUBLIC
 target_link_libraries(sinksim_engine PUBLIC sinksim::strict_fp fdlibm::fdlibm)
 target_compile_features(sinksim_engine PUBLIC cxx_std_20)
 
-if(SINKSIM_MATH STREQUAL "v8")
-  target_compile_definitions(sinksim_engine PUBLIC SINKSIM_MATH_V8=1)
-elseif(NOT SINKSIM_MATH STREQUAL "std")
-  message(FATAL_ERROR "SINKSIM_MATH must be v8 or std, got '${SINKSIM_MATH}'")
+if(SINKSIM_ENABLE_CUDA)
+  # The CUDA batch engine: the same kernel headers compiled as device code, one block per simulation.
+  add_library(sinksim_cuda STATIC cuda/batch.cu)
+  add_library(sinksim::cuda ALIAS sinksim_cuda)
+  target_include_directories(sinksim_cuda PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cuda)
+  target_link_libraries(sinksim_cuda PUBLIC sinksim::engine)
+  target_compile_features(sinksim_cuda PUBLIC cxx_std_20 cuda_std_20)
+  set_target_properties(sinksim_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION OFF CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  target_compile_definitions(sinksim_cuda PUBLIC SINKSIM_HAS_CUDA=1)
 endif()

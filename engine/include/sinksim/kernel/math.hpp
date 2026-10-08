@@ -1,61 +1,77 @@
-// Math primitives used by the kernel. Every transcendental call goes through here so that the implementation
-// is a build-time choice and the physics never changes:
+// Math policies for the kernel. Every transcendental call in the physics goes through a policy, chosen per
+// simulation, so that the same binary can reproduce the JavaScript oracle, compute platform-independent bits
+// shared with the GPU, or use the platform library:
 //
-//   SINKSIM_MATH_V8 (CMake: -DSINKSIM_MATH=v8, the default)
-//     sin and cos from the vendored fdlibm, pow with V8 13.6 semantics (third_party/v8math). On this machine
-//     these reproduce Node 24's Math.* bit for bit (third_party/README.md), which is what lets the engine be
-//     held to the JavaScript oracle exactly.
-//   otherwise (-DSINKSIM_MATH=std)
-//     the platform <cmath>.
-//   CUDA device code
-//     always the device math library: fdlibm and the CRT are host code. The GPU build is compared with the
-//     CPU reference at tolerance (docs/DETERMINISM.md).
+//   OracleMath    host: the vendored fdlibm build for sin and cos, V8 13.6's pow semantics over the platform CRT
+//                 (third_party/v8math); on Windows this reproduces Node 24 bit for bit. Device code has neither
+//                 and uses PortableMath.
+//   PortableMath  the host-and-device transliteration of fdlibm (kernel/fdlibm_portable.hpp): identical bits on
+//                 every CPU and on the GPU; equal to OracleMath for sin and cos, within one ulp of it for pow.
+//   StdMath       the platform <cmath> (CUDA device math on the device).
 //
-// ss_max and ss_min follow JavaScript's Math.max and Math.min for ordinary numbers: the larger (smaller)
-// value, the first argument when equal.
+// ss_max and ss_min follow JavaScript's Math.max and Math.min for ordinary numbers: the larger (smaller) value,
+// the first argument when equal.
 #pragma once
 
 #include <cmath>
 
 #include "sinksim/config.hpp"
+#include "sinksim/kernel/fdlibm_portable.hpp"
 
-#if defined(SINKSIM_MATH_V8) && !defined(__CUDA_ARCH__)
+#if !defined(__CUDA_ARCH__)
 #include <v8math/v8_math.hpp>
-#define SINKSIM_MATH_V8_ACTIVE 1
-#else
-#define SINKSIM_MATH_V8_ACTIVE 0
 #endif
 
 namespace sinksim {
 
-SS_HD inline Real ss_sqrt(Real x) { return std::sqrt(x); }
-
-SS_HD inline Real ss_sin(Real x) {
-#if SINKSIM_MATH_V8_ACTIVE
-  return v8math::sin(x);
-#else
-  return std::sin(x);
-#endif
-}
-
-SS_HD inline Real ss_cos(Real x) {
-#if SINKSIM_MATH_V8_ACTIVE
-  return v8math::cos(x);
-#else
-  return std::cos(x);
-#endif
-}
-
-SS_HD inline Real ss_pow(Real x, Real y) {
-#if SINKSIM_MATH_V8_ACTIVE
-  return v8math::pow(x, y);
-#else
-  return std::pow(x, y);
-#endif
-}
-
-SS_HD inline Real ss_abs(Real x) { return std::fabs(x); }
+SS_HD inline Real ss_sqrt(Real x) { return fdlibm::platform_sqrt(x); }
+SS_HD inline Real ss_abs(Real x) { return fdlibm::platform_fabs(x); }
 SS_HD inline Real ss_max(Real a, Real b) { return (b > a) ? b : a; }
 SS_HD inline Real ss_min(Real a, Real b) { return (b < a) ? b : a; }
+
+struct PortableMath {
+  static constexpr const char* name = "portable";
+  SS_HD static Real sin(Real x) { return fdlibm::sin(x); }
+  SS_HD static Real cos(Real x) { return fdlibm::cos(x); }
+  SS_HD static Real pow(Real x, Real y) { return fdlibm::pow(x, y); }
+};
+
+struct OracleMath {
+  static constexpr const char* name = "oracle";
+  SS_HD static Real sin(Real x) {
+#if defined(__CUDA_ARCH__)
+    return fdlibm::sin(x);
+#else
+    return v8math::sin(x);
+#endif
+  }
+  SS_HD static Real cos(Real x) {
+#if defined(__CUDA_ARCH__)
+    return fdlibm::cos(x);
+#else
+    return v8math::cos(x);
+#endif
+  }
+  SS_HD static Real pow(Real x, Real y) {
+#if defined(__CUDA_ARCH__)
+    return fdlibm::pow(x, y);
+#else
+    return v8math::pow(x, y);
+#endif
+  }
+};
+
+struct StdMath {
+  static constexpr const char* name = "std";
+  SS_HD static Real sin(Real x) { return fdlibm::platform_sin(x); }
+  SS_HD static Real cos(Real x) { return fdlibm::platform_cos(x); }
+  SS_HD static Real pow(Real x, Real y) {
+#if defined(__CUDA_ARCH__)
+    return ::pow(x, y);
+#else
+    return std::pow(x, y);
+#endif
+  }
+};
 
 }  // namespace sinksim

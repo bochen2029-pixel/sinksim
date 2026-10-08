@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "sinksim/simulation.hpp"
+
 namespace sinksim::cli {
 
 struct Args {
@@ -47,6 +49,17 @@ struct Args {
     return it == options.end() ? def : std::atof(it->second.c_str());
   }
 };
+
+// --numerics oracle|portable|std (default oracle); exits with usage on an unknown value.
+inline sinksim::Numerics numerics_from(const Args& args) {
+  sinksim::Numerics n = sinksim::Numerics::Oracle;
+  const std::string s = args.get("numerics", "oracle");
+  if (!sinksim::parse_numerics(s, n)) {
+    std::fprintf(stderr, "unknown --numerics %s (use oracle, portable or std)\n", s.c_str());
+    std::exit(2);
+  }
+  return n;
+}
 
 inline std::string minutes(double seconds) {
   char buf[32];

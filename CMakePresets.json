@@ -28,6 +28,12 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_CXX_COMPILER": "cl" }
     },
     {
+      "name": "msvc-cuda-release",
+      "inherits": "msvc-release",
+      "displayName": "MSVC x64 Release with the CUDA batch engine (needs nvcc on PATH)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_CXX_COMPILER": "cl", "SINKSIM_ENABLE_CUDA": "ON", "CMAKE_CUDA_ARCHITECTURES": "89" }
+    },
+    {
       "name": "gcc-release",
       "inherits": "base",
       "displayName": "GCC Release (Linux, WSL)",
@@ -46,6 +52,7 @@
     { "name": "msvc-release", "configurePreset": "msvc-release" },
     { "name": "msvc-debug", "configurePreset": "msvc-debug" },
     { "name": "msvc-relwithdebinfo", "configurePreset": "msvc-relwithdebinfo" },
+    { "name": "msvc-cuda-release", "configurePreset": "msvc-cuda-release" },
     { "name": "gcc-release", "configurePreset": "gcc-release" },
     { "name": "gcc-debug", "configurePreset": "gcc-debug" }
   ],
@@ -53,6 +60,7 @@
     { "name": "msvc-release", "configurePreset": "msvc-release", "output": { "outputOnFailure": true } },
     { "name": "msvc-debug", "configurePreset": "msvc-debug", "output": { "outputOnFailure": true } },
     { "name": "msvc-relwithdebinfo", "configurePreset": "msvc-relwithdebinfo", "output": { "outputOnFailure": true } },
+    { "name": "msvc-cuda-release", "configurePreset": "msvc-cuda-release", "output": { "outputOnFailure": true } },
     { "name": "gcc-release", "configurePreset": "gcc-release", "output": { "outputOnFailure": true } },
     { "name": "gcc-debug", "configurePreset": "gcc-debug", "output": { "outputOnFailure": true } }
   ]

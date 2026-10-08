@@ -95,4 +95,17 @@ struct CompiledSim {
   StateSnapshot initial() const { return StateSnapshot{t0, zO0, pitch0, roll0, vz0, wth0, wph0, vol0.data(), level0.data(), cx0.data(), cy0.data(), cz0.data()}; }
 };
 
+// Connections incident to each node (CSR, increasing connection index) and the sea connections in order.
+// Derived from a compiled simulation; see IncidenceView.
+struct Incidence {
+  std::vector<Index> start, count, conn;
+  std::vector<Byte> side;
+  std::vector<Index> sea;
+  IncidenceView view() const {
+    return IncidenceView{start.data(), count.data(), conn.data(), side.data(), static_cast<Index>(sea.size()), sea.data()};
+  }
+};
+
+Incidence build_incidence(const CompiledSim& sim);
+
 }  // namespace sinksim

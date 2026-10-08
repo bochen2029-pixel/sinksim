@@ -54,10 +54,11 @@ auto& field(Columns& c, const std::string& f) {
 bool per_node(const std::string& f) { return f == "vol" || f == "level" || f == "cx" || f == "cy" || f == "cz"; }
 
 void load_columns(const Json& v, TraceColumns& c, Index nodes, const std::string& path, const std::string& name) {
-  c.n = static_cast<Index>(json::integer(v, "n", path + " " + name));
+  const std::string where = path + " " + name;
+  c.n = static_cast<Index>(json::integer(v, "n", where));
   for (const char* fn : kFields) {
     const std::string f = fn;
-    const Json& arr = json::member(v, fn, path + " " + name);
+    const Json& arr = json::member(v, fn, where);
     if (!arr.is_array()) throw std::runtime_error(path + ": " + name + "." + f + " must be an array");
     std::vector<Real>& dst = field(c, f);
     dst.clear();

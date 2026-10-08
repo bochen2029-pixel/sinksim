@@ -15,6 +15,16 @@
 
 namespace sinksim {
 
+// Which bits the simulation computes (docs/DETERMINISM.md):
+//   Oracle    oracle math (fdlibm sin/cos, the platform CRT's pow as V8 calls it) and the oracle's serial sums;
+//             reproduces the JavaScript model bit for bit on Windows.
+//   Portable  the host-and-device fdlibm port and the GPU's reduction order; the same bits on every CPU and GPU.
+//   Std       the platform <cmath> with serial sums.
+enum class Numerics { Oracle, Portable, Std };
+
+const char* numerics_name(Numerics n);
+bool parse_numerics(const std::string& s, Numerics& out);
+
 struct RunOptions {
   Real tMax = 6 * 3600;        // s
   Real every = 30;             // s between history records
@@ -37,9 +47,11 @@ struct RunResult {
 
 class Simulation {
  public:
-  Simulation(std::shared_ptr<const CompiledShip> ship, const CompiledSim& sim);
+  Simulation(std::shared_ptr<const CompiledShip> ship, const CompiledSim& sim, Numerics numerics = Numerics::Oracle);
   Simulation(const Simulation&) = delete;
   Simulation& operator=(const Simulation&) = delete;
+
+  Numerics numerics() const { return numerics_; }
 
   void step();
   RunResult run(const RunOptions& opt, const std::function<bool(Simulation&)>& onStep = {});
@@ -79,12 +91,15 @@ class Simulation {
 
   const CompiledShip& ship() const { return *ship_; }
   const CompiledSim& sim() const { return sim_; }
+  const Incidence& incidence() const { return inc_; }
   ShipView ship_view() const { return shipView_; }
   const SimView& sim_view() const { return simView_; }
 
  private:
   std::shared_ptr<const CompiledShip> ship_;
   CompiledSim sim_;
+  Incidence inc_;
+  Numerics numerics_;
   Index nodes_ = 0;
   ShipView shipView_{};
   SimView simView_{};
@@ -92,7 +107,7 @@ class Simulation {
   std::vector<Real> vol_, level_;
   State st_{};
 
-  std::vector<Real> area_, cx_, cy_, cz_, zmin_, zmax_, hEff_, aEff_, acc_, over_, q_;
+  std::vector<Real> area_, cx_, cy_, cz_, zmin_, zmax_, hEff_, aEff_, acc_, excess_, over_, q_, dV_;
   std::vector<Index> deg_;
   std::vector<Byte> merged_;
   std::vector<NodePass> passes_;
@@ -104,6 +119,9 @@ class Simulation {
   EventLog ev_{};
 
   void bind();
+  Buoyancy hydro_at(const Frame& F) const;
+  Frame frame_now() const;
+  void solve_levels_full(const Frame& F);
 };
 
 }  // namespace sinksim

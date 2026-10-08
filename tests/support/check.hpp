@@ -42,10 +42,10 @@ inline int finish(const char* name) {
       ::sinksim::test::report(__FILE__, __LINE__, std::string(#a " ~ " #b) + " (" + std::to_string(_va) + " vs " + std::to_string(_vb) + ")"); \
   } while (0)
 
-#define CHECK_THROWS(expr)                                                       \
-  do {                                                                           \
-    ++::sinksim::test::g_checks;                                                 \
-    bool _thrown = false;                                                        \
-    try { (void)(expr); } catch (...) { _thrown = true; }                        \
-    if (!_thrown) ::sinksim::test::report(__FILE__, __LINE__, "no throw: " #expr); \
+#define CHECK_THROWS(expr)                                                               \
+  do {                                                                                   \
+    ++::sinksim::test::g_checks;                                                         \
+    bool _thrown = false;                                                                \
+    try { [[maybe_unused]] auto _result = (expr); } catch (...) { _thrown = true; }      \
+    if (!_thrown) ::sinksim::test::report(__FILE__, __LINE__, "no throw: " #expr);       \
   } while (0)

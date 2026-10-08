@@ -6,8 +6,9 @@
 
 namespace sinksim::kernel {
 
+template <class Math>
 SS_HD inline Frame pose_frame(const Body& b, Real zO, Real th, Real ph) {
-  const Real cth = ss_cos(th), sth = ss_sin(th), cph = ss_cos(ph), sph = ss_sin(ph);
+  const Real cth = Math::cos(th), sth = Math::sin(th), cph = Math::cos(ph), sph = Math::sin(ph);
   Frame F;
   F.R00 = cth; F.R01 = sth * sph; F.R02 = sth * cph;
   F.R10 = 0;   F.R11 = cph;       F.R12 = -sph;

@@ -161,30 +161,36 @@ SS_HD inline void solve_group(const NodesView& nodes, const Passer& pass, const 
   }
 }
 
+// One group: decide whether its members share a surface this step, then solve. Groups are independent of each
+// other, so a GPU block hands each one to a warp.
+template <class Passer>
+SS_HD inline void solve_group_entry(const NodesView& nodes, const GroupsView& G, const Frame& F, const Passer& pass, bool full,
+                                    State& st, Scratch& sc, Index g) {
+  const Index N = G.nodeCount[g];
+  const Index* members = G.nodes + G.nodeStart[g];
+  const GroupMode mode = static_cast<GroupMode>(G.mode[g]);
+  bool merged = false;
+  if (N >= 2) {
+    if (mode == GroupMode::Always) {
+      merged = true;
+    } else if (mode == GroupMode::Threshold) {
+      const Real zMw = world_z(F, G.px[g], G.py[g], G.pz[g]);
+      merged = true;
+      for (Index k = 0; k < N; ++k) {
+        const Index n = members[k];
+        if (!(st.vol[n] > scheme::kEmptyVolume && st.level[n] > zMw + G.margin)) { merged = false; break; }
+      }
+    }
+  }
+  sc.merged[g] = merged ? 1 : 0;
+  if (merged) solve_group(nodes, pass, members, N, full, st, sc);
+  else for (Index k = 0; k < N; ++k) solve_single(nodes, pass, members[k], full, st, sc);
+}
+
 template <class Passer>
 SS_HD inline void solve_levels(const NodesView& nodes, const GroupsView& G, const Frame& F, const Passer& pass, bool full,
                                State& st, Scratch& sc) {
-  for (Index g = 0; g < G.n; ++g) {
-    const Index N = G.nodeCount[g];
-    const Index* members = G.nodes + G.nodeStart[g];
-    const GroupMode mode = static_cast<GroupMode>(G.mode[g]);
-    bool merged = false;
-    if (N >= 2) {
-      if (mode == GroupMode::Always) {
-        merged = true;
-      } else if (mode == GroupMode::Threshold) {
-        const Real zMw = world_z(F, G.px[g], G.py[g], G.pz[g]);
-        merged = true;
-        for (Index k = 0; k < N; ++k) {
-          const Index n = members[k];
-          if (!(st.vol[n] > scheme::kEmptyVolume && st.level[n] > zMw + G.margin)) { merged = false; break; }
-        }
-      }
-    }
-    sc.merged[g] = merged ? 1 : 0;
-    if (merged) solve_group(nodes, pass, members, N, full, st, sc);
-    else for (Index k = 0; k < N; ++k) solve_single(nodes, pass, members[k], full, st, sc);
-  }
+  for (Index g = 0; g < G.n; ++g) solve_group_entry(nodes, G, F, pass, full, st, sc, g);
 }
 
 }  // namespace sinksim::kernel

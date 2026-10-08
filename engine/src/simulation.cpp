@@ -8,23 +8,42 @@
 #include "sinksim/kernel/frame.hpp"
 #include "sinksim/kernel/hydro.hpp"
 #include "sinksim/kernel/levels.hpp"
+#include "sinksim/kernel/reduce.hpp"
 #include "sinksim/kernel/step.hpp"
 
 namespace sinksim {
 
-Simulation::Simulation(std::shared_ptr<const CompiledShip> ship, const CompiledSim& sim) : ship_(std::move(ship)), sim_(sim) {
+const char* numerics_name(Numerics n) {
+  switch (n) {
+    case Numerics::Oracle: return "oracle";
+    case Numerics::Portable: return "portable";
+    case Numerics::Std: return "std";
+  }
+  return "?";
+}
+
+bool parse_numerics(const std::string& s, Numerics& out) {
+  if (s == "oracle") { out = Numerics::Oracle; return true; }
+  if (s == "portable") { out = Numerics::Portable; return true; }
+  if (s == "std") { out = Numerics::Std; return true; }
+  return false;
+}
+
+Simulation::Simulation(std::shared_ptr<const CompiledShip> ship, const CompiledSim& sim, Numerics numerics)
+    : ship_(std::move(ship)), sim_(sim), inc_(build_incidence(sim)), numerics_(numerics) {
   if (!ship_) throw std::invalid_argument("Simulation: null ship");
   nodes_ = ship_->nodes();
   if (sim_.nodes() != nodes_) throw std::invalid_argument("Simulation: ship and simulation disagree on the node count");
   const auto nn = static_cast<std::size_t>(nodes_);
   vol_.assign(nn, 0); level_.assign(nn, 0);
   area_.assign(nn, 0); cx_.assign(nn, 0); cy_.assign(nn, 0); cz_.assign(nn, 0);
-  zmin_.assign(nn, 0); zmax_.assign(nn, 0); hEff_.assign(nn, 0); aEff_.assign(nn, 0); acc_.assign(nn, 0);
+  zmin_.assign(nn, 0); zmax_.assign(nn, 0); hEff_.assign(nn, 0); aEff_.assign(nn, 0); acc_.assign(nn, 0); excess_.assign(nn, 0);
   deg_.assign(nn, 0);
   merged_.assign(static_cast<std::size_t>(sim_.groups()), 0);
   passes_.assign(static_cast<std::size_t>(sim_.maxGroupSize()), NodePass{});
   over_.assign(static_cast<std::size_t>(sim_.monitors()), 0);
   q_.assign(static_cast<std::size_t>(sim_.connections()), 0);
+  dV_.assign(static_cast<std::size_t>(sim_.connections()), 0);
   evItems_.assign(static_cast<std::size_t>(sim_.monitors() + sim_.marks() + 1), Event{});
   overT_.assign(static_cast<std::size_t>(sim_.monitors()), -1);
   markT_.assign(static_cast<std::size_t>(sim_.marks()), -1);
@@ -41,6 +60,7 @@ void Simulation::bind() {
   simView_.conns = ConnectionsView{sim_.connections(), sim_.ca.data(), sim_.cb.data(), sim_.cLaw.data(), sim_.cx.data(), sim_.cy.data(),
                                    sim_.cz.data(), sim_.cArea.data(), sim_.cCoef.data(), sim_.cKind.data(), sim_.cIdx.data(), sim_.cEn.data(),
                                    sim_.cTOn.data(), sim_.cSkipGroup.data(), sim_.cMonitor.data(), q_.data()};
+  simView_.inc = inc_.view();
   simView_.monitors = MonitorsView{sim_.monitors(), sim_.monitorThreshold};
   simView_.marks = MarksView{sim_.marks(), sim_.mkx.data(), sim_.mky.data(), sim_.mkz.data(), sim_.mkWhen.data()};
   simView_.founder = sim_.founder;
@@ -50,7 +70,7 @@ void Simulation::bind() {
   st_.level = level_.data();
 
   sc_ = Scratch{area_.data(), cx_.data(), cy_.data(), cz_.data(), zmin_.data(), zmax_.data(), hEff_.data(), aEff_.data(),
-                acc_.data(), deg_.data(), merged_.data(), passes_.data(), over_.data()};
+                acc_.data(), excess_.data(), deg_.data(), merged_.data(), passes_.data(), over_.data(), dV_.data()};
 
   ev_.items = evItems_.data();
   ev_.capacity = static_cast<Index>(evItems_.size());
@@ -61,6 +81,7 @@ void Simulation::bind() {
 void Simulation::reset_to_initial() {
   restore(sim_.initial());
   for (auto& q : q_) q = 0;
+  for (auto& d : dV_) d = 0;
   for (auto& m : merged_) m = 0;
   for (auto& a : area_) a = 0;
   evaluate_hydro();
@@ -85,9 +106,32 @@ void Simulation::reset_events() {
   for (auto& t : markT_) t = -1;
 }
 
+Frame Simulation::frame_now() const {
+  switch (numerics_) {
+    case Numerics::Oracle: return kernel::pose_frame<OracleMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
+    case Numerics::Portable: return kernel::pose_frame<PortableMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
+    case Numerics::Std: return kernel::pose_frame<StdMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
+  }
+  return kernel::pose_frame<OracleMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
+}
+
+Buoyancy Simulation::hydro_at(const Frame& F) const {
+  if (numerics_ == Numerics::Portable) return kernel::hydro_pass_tree<kernel::kBlockThreads>(shipView_.cols, F);
+  return kernel::hydro_pass(shipView_.cols, F);
+}
+
+void Simulation::solve_levels_full(const Frame& F) {
+  if (numerics_ == Numerics::Portable) {
+    const kernel::TreePasser<kernel::kWarpLanes> pass{shipView_, F};
+    kernel::solve_levels(shipView_.nodes, simView_.groups, F, pass, true, st_, sc_);
+  } else {
+    const kernel::SerialPasser pass{shipView_, F};
+    kernel::solve_levels(shipView_.nodes, simView_.groups, F, pass, true, st_, sc_);
+  }
+}
+
 void Simulation::evaluate_hydro() {
-  const Frame F = kernel::pose_frame(simView_.body, st_.zO, st_.pitch, st_.roll);
-  const Buoyancy hb = kernel::hydro_pass(shipView_.cols, F);
+  const Buoyancy hb = hydro_at(frame_now());
   out_.inflow = 0;
   out_.Vb = hb.V; out_.hullTop = hb.top;
   out_.bx = hb.x; out_.by = hb.y; out_.bz = hb.z;
@@ -96,9 +140,22 @@ void Simulation::evaluate_hydro() {
   out_.mw = mw;
 }
 
-void Simulation::step() { kernel::step(shipView_, simView_, st_, sc_, out_, ev_); }
+void Simulation::step() {
+  switch (numerics_) {
+    case Numerics::Oracle: kernel::step<OracleMath, false>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::Portable: kernel::step<PortableMath, true>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::Std: kernel::step<StdMath, false>(shipView_, simView_, st_, sc_, out_, ev_); break;
+  }
+}
 
-kernel::Readouts Simulation::readouts() const { return kernel::readouts(shipView_, simView_, sim_.readout, st_, out_); }
+kernel::Readouts Simulation::readouts() const {
+  switch (numerics_) {
+    case Numerics::Oracle: return kernel::readouts<OracleMath>(shipView_, simView_, sim_.readout, st_, out_);
+    case Numerics::Portable: return kernel::readouts<PortableMath>(shipView_, simView_, sim_.readout, st_, out_);
+    case Numerics::Std: return kernel::readouts<StdMath>(shipView_, simView_, sim_.readout, st_, out_);
+  }
+  return kernel::readouts<OracleMath>(shipView_, simView_, sim_.readout, st_, out_);
+}
 
 RunResult Simulation::run(const RunOptions& opt, const std::function<bool(Simulation&)>& onStep) {
   RunResult res;
@@ -132,6 +189,7 @@ io::Trace Simulation::record_trace(Real tMax, int denseSteps, Real sampleEvery) 
   tr.ship = ship_->id;
   tr.sim = sim_.id;
   tr.title = sim_.title;
+  tr.producer = std::string("sinksim CPU engine, numerics ") + numerics_name(numerics_);
   tr.dt = sim_.dt;
   tr.nodes = nodes_;
   tr.denseSteps = denseSteps;
@@ -196,12 +254,14 @@ Real Simulation::gm_now() {
   const std::vector<Byte> merged = merged_;
   const Real d = 0.01;
   Real out[2];
+  const Real roll0 = st_.roll;
   for (int s = 0; s < 2; ++s) {
     const Real sign = s == 0 ? -1 : 1;
-    const Frame F = kernel::pose_frame(simView_.body, st_.zO, st_.pitch, st_.roll + sign * d);
-    const Buoyancy hb = kernel::hydro_pass(shipView_.cols, F);
-    const kernel::SerialPasser pass{shipView_, F};
-    kernel::solve_levels(shipView_.nodes, simView_.groups, F, pass, true, st_, sc_);
+    st_.roll = roll0 + sign * d;
+    const Frame F = frame_now();
+    st_.roll = roll0;
+    const Buoyancy hb = hydro_at(F);
+    solve_levels_full(F);
     const Loads L = kernel::loads(shipView_, simView_, F, hb, st_, sc_);
     out[s] = L.Mph;
     std::copy(vol.begin(), vol.end(), vol_.begin());

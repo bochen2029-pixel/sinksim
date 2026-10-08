@@ -19,17 +19,20 @@ endif()
 
 option(SINKSIM_BUILD_APPS "Build the command-line tools" ON)
 option(SINKSIM_BUILD_TESTS "Build and register the tests" ON)
-option(SINKSIM_ENABLE_CUDA "Build the CUDA batch engine (roadmap phase 2, not yet implemented)" OFF)
-
-# Transcendental functions of the kernel (engine/include/sinksim/kernel/math.hpp, third_party/README.md):
-#   v8  = vendored fdlibm sin/cos and V8's pow semantics; reproduces the Node 24 oracle bit for bit on Windows
-#   std = the platform <cmath>
-set(SINKSIM_MATH "v8" CACHE STRING "Kernel math implementation: v8 or std")
-set_property(CACHE SINKSIM_MATH PROPERTY STRINGS v8 std)
+option(SINKSIM_ENABLE_CUDA "Build the CUDA batch engine (needs the CUDA toolkit; computes the portable numerics)" OFF)
 
 # Tolerances for the golden test; docs/DETERMINISM.md records the measured values behind them.
 set(SINKSIM_GOLDEN_TOL_STEP "0" CACHE STRING "Largest allowed difference after one step from a golden record")
 set(SINKSIM_GOLDEN_TOL_WINDOW "0" CACHE STRING "Largest allowed difference after one sampled window from a golden record")
+
+if(SINKSIM_ENABLE_CUDA)
+  enable_language(CUDA)
+  set(CMAKE_CUDA_STANDARD 20)
+  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    set(CMAKE_CUDA_ARCHITECTURES 89 CACHE STRING "CUDA architectures" FORCE)
+  endif()
+endif()
 
 include(cmake/StrictFloatingPoint.cmake)
 

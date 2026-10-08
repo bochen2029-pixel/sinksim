@@ -17,9 +17,10 @@ struct Readouts {
   Real inflowTpm;
 };
 
+template <class Math>
 SS_HD inline Readouts readouts(const ShipView& S, const SimView& M, const ReadoutGeometry& R, const State& st,
                                const Outputs& out) {
-  const Frame F = pose_frame(M.body, st.zO, st.pitch, st.roll);
+  const Frame F = pose_frame<Math>(M.body, st.zO, st.pitch, st.roll);
   Readouts r;
   r.t = st.t;
   r.trimDeg = st.pitch * 180 / scheme::kPi;
