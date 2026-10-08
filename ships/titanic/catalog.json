@@ -1,0 +1,7 @@
+{
+  "format": "sinksim.catalog",
+  "formatVersion": 1,
+  "ship": "titanic64",
+  "shipFile": "titanic64.ship.json",
+  "cases": [{"id":"titanic","label":"Titanic 1912 (calibrated)","file":"sims/titanic.sim.json","tMaxH":8,"keepHist":true},{"id":"four","label":"Four forward compartments (Wilding: floats)","file":"sims/four.sim.json","tMaxH":8,"keepHist":false},{"id":"five","label":"Five forward compartments (Wilding: sinks)","file":"sims/five.sim.json","tMaxH":8,"keepHist":false},{"id":"hawke","label":"Olympic-Hawke 1911 (returned to port)","file":"sims/hawke.sim.json","tMaxH":8,"keepHist":false},{"id":"britannic","label":"Britannic 1916, approx. (sank in ~55 min)","file":"sims/britannic.sim.json","tMaxH":8,"keepHist":true},{"id":"britannicClosed","label":"Britannic, same damage, portholes shut","file":"sims/britannicClosed.sim.json","tMaxH":8,"keepHist":false},{"id":"titanicNoBR5","label":"Titanic damage without the BR5 seam","file":"sims/titanicNoBR5.sim.json","tMaxH":8,"keepHist":false},{"id":"titanicFour","label":"Titanic damage stopping at hold 3","file":"sims/titanicFour.sim.json","tMaxH":8,"keepHist":false},{"id":"titanicD","label":"Titanic damage, all bulkheads to D deck","file":"sims/titanicD.sim.json","tMaxH":8,"keepHist":false},{"id":"titanicB","label":"Titanic damage, all bulkheads to B deck","file":"sims/titanicB.sim.json","tMaxH":8,"keepHist":false},{"id":"titanicDoors","label":"Titanic damage, watertight doors left open","file":"sims/titanicDoors.sim.json","tMaxH":8,"keepHist":false}]
+}
