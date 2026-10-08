@@ -1,0 +1,13 @@
+
+fn      samples   v8math != node (max ulp)  
+pow      100009          0    0.00%  (   0)
+sin       20000          0    0.00%  (   0)
+cos       20000          0    0.00%  (   0)
+tan       20000          0    0.00%  (   0)
+asin      20000          0    0.00%  (   0)
+exp       20000          0    0.00%  (   0)
+log       20000          0    0.00%  (   0)
+atan2     20000          0    0.00%  (   0)
+sqrt      20000          0    0.00%  (   0)
+
+lines 260009, unknown functions 0, v8math mismatches 0 -> v8math reproduces Node bit for bit on this set

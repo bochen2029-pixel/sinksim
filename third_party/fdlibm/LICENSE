@@ -1,0 +1,25 @@
+fdlibm, version 5.3 (netlib, http://www.netlib.org/fdlibm/)
+
+The notice below is reproduced from the header of every source file in src/.
+
+====================================================
+Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+
+Developed at SunSoft, a Sun Microsystems, Inc. business.
+Permission to use, copy, modify, and distribute this
+software is freely granted, provided that this notice
+is preserved.
+====================================================
+
+fdlibm.h carries the same grant dated 2004:
+
+====================================================
+Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+
+Permission to use, copy, modify, and distribute this
+software is freely granted, provided that this notice
+is preserved.
+====================================================
+
+The wrapper files in this directory (fdlibm_rename.h, fdlibm_api.h, CMakeLists.txt,
+build-msvc.cmd, verify/) are released under the MIT License of the enclosing project.
