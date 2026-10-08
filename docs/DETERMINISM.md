@@ -5,12 +5,16 @@
 | `Numerics` | sin, cos | pow | summation order | reproduces |
 |---|---|---|---|---|
 | `oracle` | vendored fdlibm (what V8 uses) | the platform CRT after V8's special cases (`third_party/v8math`) | the oracle's serial loops | the JavaScript model bit for bit on Windows; on Linux too for the 1912 run (glibc and the UCRT agreed on every pow the run called) |
-| `portable` | host-and-device fdlibm port | host-and-device fdlibm port | the GPU's canonical trees (`kernel/reduce.hpp`) | itself, bit for bit, on every CPU and on the GPU |
+| `portable` | host-and-device fdlibm port | host-and-device fdlibm port | the GPU's canonical trees (`kernel/reduce.hpp`), double precision | itself, bit for bit, on every CPU and on the GPU in double precision |
+| `portable32` | host-and-device fdlibm port | host-and-device fdlibm port | the same trees with single-precision column arithmetic and partial sums | itself, bit for bit, on every CPU and on the GPU in mixed precision (the production mode) |
 | `std` | platform `<cmath>` | platform `<cmath>` | serial | nothing in particular; a portability fallback |
 
 The portable and oracle numerics differ by at most one ulp in `pow` and by the summation order; measured on the
 1912 run, that is a difference of 2e-15 in pose and 4e-14 m³ in volumes after one step, and the usual amplification
-after the first overtopping (below).
+after the first overtopping (below). The mixed-precision numerics sit at single-precision rounding from the double
+ones: 5e-8 in pose and 7e-3 m³ in the buoyant volume after one step, the founder time one second later, events
+within 23 s. The calibration objective at the oracle's parameters is 10.411 under oracle numerics and 10.408 under
+portable32.
 
 ## What was measured on 2026-10-08
 
@@ -47,9 +51,10 @@ vendored fdlibm `sin` and `cos` and the V8 `pow` semantics over the platform CRT
 difference at every one of 400 dense single steps, 157 sixty-second windows, and end to end (158 samples, 16 events,
 founder at 9440.5 s). The same holds on Linux with GCC.
 
-**The GPU reproduces the CPU's portable numerics bit for bit**, and the Linux CPU reproduces the Windows CPU's
-portable trace bit for bit: zero difference in all three checks. The portable reference is
-`data/golden/titanic64/titanic.portable.trace.json`.
+**The GPU reproduces the CPU's portable numerics bit for bit** in both precisions, and the Linux CPU reproduces
+the Windows CPU's portable trace bit for bit: zero difference in all three checks. The references are
+`data/golden/titanic64/titanic.portable.trace.json` and `titanic.portable32.trace.json`. A GPU sweep (curves,
+events, final readouts of every instance) equals the CPU sweep value for value (`sinksim_sweep --compare`).
 
 **The validation table under the portable numerics** has the same verdicts and the same founder times to the minute
 as under the oracle numerics. Two afloat equilibria differ by 1 to 2 t of water because the stop-when-stable rule

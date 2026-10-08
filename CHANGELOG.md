@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 (2026-10-08)
+
+- Mixed precision: single-precision column arithmetic and partial sums in the GPU's reduction order, as the
+  `portable32` numerics on the CPU and `--precision mixed` (the default) on the GPU; its own reference trace; the
+  GPU matches the CPU exactly in both precisions. 2.4 times the double-precision throughput.
+- Sweeps: `sinksim.sweep` and `sinksim.batch-results` formats, `sinksim_sweep` (threaded CPU runner and exact
+  comparison), `sinksim_cuda_run --sweep` with readout curves recorded on the device, CTest holding the GPU's sweep
+  equal to the CPU's.
+- Observation targets and the oracle's calibration objective exported as data; `tools/py/sweep.py` and
+  `tools/py/calibrate_gpu.py`.
+- ADR 0007; documentation of the measurements.
+
 ## 0.2.0 (2026-10-08)
 
 - Portable numerics: fdlibm's sin, cos, pow and scalbn as host-and-device functions, the canonical reduction tree

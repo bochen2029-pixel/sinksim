@@ -42,11 +42,26 @@ The GPU trace matches the CPU's portable numerics exactly, and the Linux build m
 exactly. Double precision runs at one sixty-fourth of single rate on this consumer part, which is why the
 saturated rate is only about 1.3 times a fully threaded 16-core CPU reference.
 
+## Mixed precision (added the same day)
+
+The column arithmetic and the partial sums of both integrals in single precision, the warp results widened before
+thread 0 combines them, everything else unchanged; the CPU emulates it as the `portable32` numerics with its own
+reference trace, and the GPU in mixed precision matches that trace exactly.
+
+| batch, mixed precision | aggregate steps/s | full 1912 sinkings per minute |
+|---|---|---|
+| 8 | 92,000 | 146 |
+| 264 | 1,194,000 | 1,898 |
+| 1,056 | 1,167,000 | 1,855 |
+
+A gain of 2.4 over double precision, less than the ratio of the two arithmetic rates: the serial tail each block
+runs on one thread (loads, integration, events) and the synchronisation between phases now dominate. The next
+step is a profiler pass, not more guessing.
+
 ## Consequences
 
-- The next optimisation is mixed precision in the column integrals (single-precision partials, double totals),
-  implemented with the same CPU emulation so that it stays bit-checkable; it changes the bits and therefore gets its
-  own portable reference trace.
+- Both precisions stay available (`--precision double|mixed`); double is the bridge for debugging against the CPU,
+  mixed the production mode.
 - The oracle numerics stay the scientific reference for calibration against history; the portable numerics are the
   reference for batch work, with a measured, documented difference between the two (docs/DETERMINISM.md).
 - Larger ship models need more shared memory per block; above the device limit the per-connection arrays move to

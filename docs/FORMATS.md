@@ -78,6 +78,35 @@ The record is complete: restarting a simulation from any record and stepping rep
 The centroids are part of it because the oracle keeps a node's last computed centroid while the node holds less
 water than the solver tolerance and still uses it in the loads (docs/DETERMINISM.md).
 
+## `sinksim.sweep` (version 1)
+
+Many instances of one compiled simulation that differ by connection changes, for `sinksim_sweep` (CPU) and
+`sinksim_cuda_run --sweep` (GPU). Written by hand or by `tools/py/sweep.py`.
+
+| Member | Content |
+|---|---|
+| `ship`, `sim` | informational; the tools take the compiled files on the command line |
+| `tMax`, `every` | s; the run length and the curve interval (the oracle's run history uses 30 s) |
+| `stopWhenStable` | the oracle's calm rule; CPU only |
+| `instances[]` | `id`; `scale`: an object of connection kind name to factor, multiplying the compiled area of every connection of that kind (the four calibration parameters of the Titanic model are the kinds `breach`, `over`, `down`, `top`); `connections[]`: overrides selecting one connection (`conn`) or every connection of a `kind` (and `idx`), setting any of `enabled`, `tOn` (s) and `area` |
+
+Overrides apply after scales, in the order written.
+
+## `sinksim.batch-results` (version 1)
+
+What a sweep produced: `ship`, `sim`, `numerics`, `engine`, `tMax`, `every`, and `instances[]` with `id`, `foundered`,
+`founderT`, `tEnd`, `steps`, `final` (`trimDeg`, `listDeg`, `waterT`, `draftF`, `draftA`, `inflowTpm`), `events[]`
+(`t`, `id`, `label`) and `curve` (columns `t`, `trim`, `list`, `water`, `inflow`, `draftF`, `draftA`: the readouts
+every `every` seconds from the initial state, closed by a record at the end of the run, exactly the oracle's run
+history). `sinksim_sweep --compare a b` compares two files value for value; the GPU's results equal the CPU's in
+the same numerics.
+
+## `sinksim.observations` (version 1)
+
+`data/observations/titanic-1912.json`, exported from the oracle by `tools/js/export_observations.js`: Halpern's
+eyewitness-derived trim and list against time, the foundering and break-up times, the timeline events, and the
+weights of the oracle's calibration objective written down so that any driver reproduces it (`tools/py/calibrate_gpu.py`).
+
 ## `sinksim.validation` (version 1)
 
 `data/validation/<ship>/validation.oracle.json` and the engine's `validation.engine.json`: `cases` keyed by id with

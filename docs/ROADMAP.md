@@ -9,7 +9,7 @@ that renders the simulator's own water. Phases 0 and 1 are done (`docs/STATUS.md
 |---|---|---|---|
 | 0 Foundation | Repository, frozen oracle with manifest, golden trace carrying the complete state, JS self-check, formats, build wrapper | the oracle reproduces its own trace from every record | done |
 | 1 C++ reference | Topology-agnostic single-source kernel, loaders with hash verification, `sinksim_run`, `sinksim_check`, `sinksim_validate`, vendored oracle-exact math | bit-exact against the golden trace, step by step and end to end; validation table reproduced | done |
-| 2 CUDA batch | One block per simulation, gather-ordered flow accumulation, canonical reduction trees emulated by the CPU, portable host-and-device math; batch API over per-instance connection fields and state | the GPU trace matches the CPU's portable numerics bit for bit; throughput measured | done in double precision (ADR 0006); mixed precision and the parameter-vector API are next |
+| 2 CUDA batch | One block per simulation, gather-ordered flow accumulation, canonical reduction trees emulated by the CPU, portable host-and-device math in double and mixed precision; sweeps as files with kind scales and connection overrides, CPU and GPU runners, a Python driver and the oracle's objective | the GPU trace matches the CPU's portable numerics bit for bit in both precisions; GPU sweeps equal CPU sweeps; throughput measured (1,900 sinkings per minute mixed) | done (ADR 0006, 0007); a profiler pass is the next optimisation |
 | 3 Ship model v2 | Deck-level spaces digitised from the general-arrangement plans, coal bunkers, Scotland Road, gangway doors, superstructure, real hull sections voxelised; a ship-definition format where every number cites its source; the `shipc` compiler reproducing `titanic64` as its first regression test; recalibration | hydrostatics within 1 % of Harland and Wolff; Hackett and Bedford's conditions C1 to C7 reproduced | can start in parallel |
 | 4 Physics | Pumps and the testimony door schedule, air compression, the list mechanisms as competing hypotheses, still-water bending moment and a break followed by two rigid bodies, forward speed for Britannic | starboard list at 11:50 and port list by 2:05 inside the bands; break time and angle inside the published range | |
 | 5 Inference | Bayesian calibration on the GPU, global sensitivity, the Carpathia question as schedule optimisation over the posterior | posterior bands on trim, list and events; the Carpathia gap as an interval | |
@@ -25,8 +25,11 @@ that renders the simulator's own water. Phases 0 and 1 are done (`docs/STATUS.md
 - The end game is not physical yet: the founder rule fires at a pitch of 69°. The hull-girder model, trapped air and
   buoyancy above B deck turn the last ten minutes into physics (phase 4).
 - Consumer GPUs run double precision at a sixty-fourth of single rate; the double-precision CUDA engine measures
-  800 full sinkings per minute on an RTX 4070 Ti SUPER, about 1.3 times a fully threaded 16-core CPU. Mixed precision
-  in the column integrals is the next step, built so that the CPU still emulates the GPU's bits exactly.
+  800 full sinkings per minute on an RTX 4070 Ti SUPER, mixed precision 1,900, both with the CPU emulating the GPU's
+  bits exactly. The remaining cost is the serial tail and the synchronisation, a profiler's job.
+- The calibration objective at the oracle's parameters cannot be improved by the four flow parameters (J 10.41 to
+  10.33 over 1,320 GPU evaluations); the residual is the list, which is a topology question (phase 3), not a
+  parameter question.
 - Calibration with more parameters than data points needs priors and bands (phase 5); every headline number should
   carry an interval before it is quoted.
 

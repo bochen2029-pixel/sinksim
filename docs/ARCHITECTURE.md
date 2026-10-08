@@ -64,8 +64,10 @@ launches in bounded chunks and assembles results and traces; `sinksim/cuda/batch
 `model.hpp` owns the arrays (`CompiledShip`, `CompiledSim`), defines `StateSnapshot` and derives the incidence
 lists. `io/compiled.*` loads the files and verifies every hash; `io/trace.*` reads and writes traces; `io/json.*`
 wraps nlohmann with the project's layout and number formatting. `simulation.*` binds views, drives steps with the
-chosen `Numerics`, records traces, applies actions and offers diagnostics. Apps are thin wrappers: run, check,
-validate, and the CUDA batch runner.
+chosen `Numerics`, records traces, applies actions and offers diagnostics. `sweep.*` reads sweep files, applies an
+instance's scales and overrides to any target through three setters, runs sweeps on the CPU and writes and compares
+results. Apps are thin wrappers: run, check, validate, sweep, and the CUDA batch runner (which also runs sweeps).
+`tools/py/sweep.py` and `calibrate_gpu.py` drive the tools from Python through the files alone.
 
 ## Data flow of a check
 

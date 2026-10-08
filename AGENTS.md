@@ -71,7 +71,9 @@ Elsewhere: `cmake --preset gcc-release && cmake --build --preset gcc-release && 
 Regenerate data from the oracle (Node 24): `npm run export`, `npm run golden`, `npm run perstep`, `npm run validate:oracle`.
 
 Command-line tools after a build (`build/<preset>/bin/`): `sinksim_run`, `sinksim_check`, `sinksim_validate`,
-`sinksim_cuda_run`; each prints its usage when called without arguments, and each takes `--numerics`.
+`sinksim_sweep`, `sinksim_cuda_run`; each prints its usage when called without arguments, and the CPU tools take
+`--numerics`. Python drivers in `tools/py/` (`sweep.py`, `calibrate_gpu.py`) talk to the tools through sweep and
+results files only; the observation targets come from `npm run export:observations`.
 
 ## Sessions and decisions
 

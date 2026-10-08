@@ -14,15 +14,16 @@ of 14 April 1912 is the first ship and the calibration target; the engine itself
 |---|---|
 | **C++ reference engine** (`engine/`) | Single-source kernel that compiles unchanged as CPU and CUDA code (WebAssembly to come); reproduces the original JavaScript model **bit for bit** at every step of the 1912 run, and its whole validation table, on Windows and Linux |
 | **CUDA batch engine** (`engine/cuda`) | One thread block per simulation, hundreds at a time; its results are reproduced **bit for bit** by the CPU in portable numerics, so the GPU is checked exactly rather than "close enough" |
-| **Portable numerics** | fdlibm's sin, cos and pow as host-and-device functions plus a canonical reduction order: the same bits on every CPU and on the GPU, verified across Windows, Linux and the RTX 4070 Ti SUPER |
+| **Portable numerics** | fdlibm's sin, cos and pow as host-and-device functions plus a canonical reduction order, in double and in mixed precision: the same bits on every CPU and on the GPU, verified across Windows, Linux and the RTX 4070 Ti SUPER |
+| **Sweeps and calibration** | A sweep is a file: per instance, scale factors on connection kinds and door or opening overrides; it runs on the CPU or the GPU with identical results, and `tools/py/calibrate_gpu.py` runs the oracle's own calibration objective over 1,320 GPU evaluations in under a minute |
 | **Frozen oracle** (`oracle/js`) | The original JavaScript core, viewer and notes, hash-listed; golden traces and validation tables are exported from it |
 | **Compiled Titanic model** (`ships/titanic`) | 4,408 hull columns, 64 spaces, 290 connections; 11 scenarios from 1912 to Olympic-Hawke and Britannic |
 | **Acceptance tests** (`tests/`) | Unit tests, a step-by-step and window-by-window golden check, and the validation comparison, all under CTest |
 | **Tools** (`apps/`, `tools/`) | `sinksim_run`, `sinksim_check`, `sinksim_validate`; the exporter, golden writer and self-check on the Node side; a trace diff in Python |
 | **Vendored, oracle-exact math** (`third_party/`) | fdlibm for sin and cos, V8's pow semantics, nlohmann JSON; nothing is fetched at build time |
 
-Mixed precision on the GPU, the deck-level ship model with real plans, the physics beyond the original model (lists,
-pumps, air, the break-up), Bayesian calibration and the new viewer are the roadmap: `docs/ROADMAP.md`.
+The deck-level ship model with real plans, the physics beyond the original model (lists, pumps, air, the break-up),
+Bayesian calibration with bands and the new viewer are the roadmap: `docs/ROADMAP.md`.
 
 ## The 1912 run, as the engine computes it
 
@@ -63,14 +64,17 @@ build\msvc-release\bin\sinksim_run ships\titanic\titanic64.ship.json ships\titan
 build\msvc-release\bin\sinksim_check ships\titanic\titanic64.ship.json ships\titanic\sims\titanic.sim.json data\golden\titanic64\titanic.trace.json
 build\msvc-release\bin\sinksim_validate ships\titanic\catalog.json --compare data\validation\titanic64\validation.oracle.json
 build\msvc-cuda-release\bin\sinksim_cuda_run ships\titanic\titanic64.ship.json ships\titanic\sims\titanic.sim.json --count 264 --perturb
+build\msvc-release\bin\sinksim_sweep ships\titanic\titanic64.ship.json ships\titanic\sims\titanic.sim.json tests\sweeps\smoke.sweep.json --numerics portable32
+python tools\py\calibrate_gpu.py --rounds 5 --batch 264
 ```
 
-Every tool takes `--numerics oracle|portable|std` (`docs/DETERMINISM.md`). Throughput on this machine:
+Every tool takes `--numerics oracle|portable|portable32|std` (`docs/DETERMINISM.md`). Throughput on this machine:
 
 | Engine | Rate |
 |---|---|
 | CPU, oracle numerics, one thread | 25,000 steps/s; the 2 h 37 min sinking in 1.5 s |
 | GPU, double precision, batch of 264 or more | 503,000 steps/s aggregate; 800 full sinkings per minute |
+| GPU, mixed precision, batch of 264 or more | 1,190,000 steps/s aggregate; 1,900 full sinkings per minute |
 
 The original viewer runs without any build: open `oracle/js/out/titanic.html`.
 
