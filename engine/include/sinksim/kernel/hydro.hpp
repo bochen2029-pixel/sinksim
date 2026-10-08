@@ -121,6 +121,39 @@ SS_HD inline NodePass node_pass_tree(const ShipView& S, const Frame& F, Index n,
   return finish_pass(S, n, iR, tree(lanes));
 }
 
+// Mixed precision: single-precision thread partials and warp trees, double from the warp results onward.
+template <int T>
+SS_HD inline Buoyancy hydro_pass_tree_mixed(const ColumnsView& c, const Frame& F) {
+  constexpr int W = T / kWarpLanes;
+  const FrameF f = frame_f(F);
+  HydroPartialF warps[W];
+  for (int w = 0; w < W; ++w) {
+    HydroPartialF lanes[kWarpLanes];
+    for (int l = 0; l < kWarpLanes; ++l) {
+      lanes[l] = hydro_zero_f();
+      for (Index i = static_cast<Index>(w * kWarpLanes + l); i < c.n; i += T) hydro_column_f(c, f, i, lanes[l]);
+    }
+    warps[w] = tree(lanes);
+  }
+  HydroPartial total = widen(warps[0]);
+  for (int w = 1; w < W; ++w) combine(total, widen(warps[w]));
+  return finish_hydro(total);
+}
+
+// Mixed precision: single-precision lane partials and tree, the finished totals in double.
+template <int L>
+SS_HD inline NodePass node_pass_tree_mixed(const ShipView& S, const Frame& F, Index n, Real h) {
+  const Index s0 = S.nodes.segStart[n], s1 = s0 + S.nodes.segCount[n];
+  const FrameF f = frame_f(F);
+  const float hf = static_cast<float>(h);
+  PassPartialF lanes[L];
+  for (int l = 0; l < L; ++l) {
+    lanes[l] = pass_zero_f();
+    for (Index j = s0 + static_cast<Index>(l); j < s1; j += L) pass_segment_f(S, f, hf, j, lanes[l]);
+  }
+  return finish_pass(S, n, 1 / F.R22, widen(tree(lanes)));
+}
+
 // The node pass as a callable, the form the level solvers consume.
 struct SerialPasser {
   const ShipView& S;
@@ -133,6 +166,13 @@ struct TreePasser {
   const ShipView& S;
   const Frame& F;
   SS_HD NodePass operator()(Index n, Real h) const { return node_pass_tree<L>(S, F, n, h); }
+};
+
+template <int L>
+struct TreePasserMixed {
+  const ShipView& S;
+  const Frame& F;
+  SS_HD NodePass operator()(Index n, Real h) const { return node_pass_tree_mixed<L>(S, F, n, h); }
 };
 
 }  // namespace sinksim::kernel

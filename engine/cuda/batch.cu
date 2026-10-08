@@ -118,6 +118,9 @@ struct Batch::Impl {
   DeviceArray<Index> evCount;
   DeviceArray<long long> steps;
   DeviceArray<int> denseCount, sampleCount;
+  int curveMax = 0;
+  DeviceArray<Real> curveRec, nextCurve;
+  DeviceArray<int> curveCount;
 
   // host staging of per-instance mutable arrays before run()
   std::vector<Byte> hEn;
@@ -141,7 +144,7 @@ struct Batch::Impl {
     d.inc = IncidenceView{incStart.get(), incCount.get(), incConn.get(), incSide.get(), static_cast<Index>(inc.sea.size()), incSea.get()};
     d.monitors = MonitorsView{nMon, sim.monitorThreshold};
     d.marks = MarksView{nMarks, mkx.get(), mky.get(), mkz.get(), mkWhen.get()};
-    d.founder = sim.founder; d.body = sim.body;
+    d.founder = sim.founder; d.body = sim.body; d.readout = sim.readout;
     d.nNodes = NN; d.nGroups = NG; d.maxGroup = maxGroup; d.nMon = nMon; d.nMarks = nMarks; d.evCap = evCap;
     return d;
   }
@@ -158,6 +161,8 @@ struct Batch::Impl {
     b.traced = opt.tracedInstances; b.denseSteps = opt.denseSteps; b.sampleEvery = opt.sampleEvery; b.maxSamples = maxSamples; b.recSize = recSize;
     b.denseRec = denseRec.get(); b.sampleRec = sampleRec.get();
     b.denseCount = denseCount.get(); b.sampleCount = sampleCount.get(); b.nextSample = nextSample.get();
+    b.curveEvery = opt.curveEvery; b.curveMax = curveMax;
+    b.curveRec = curveRec.get(); b.curveCount = curveCount.get(); b.nextCurve = nextCurve.get();
     return b;
   }
 };
@@ -262,17 +267,28 @@ double Batch::run() {
   I.denseCount.upload(std::vector<int>(traced, 0));
   I.sampleCount.upload(std::vector<int>(traced, 0));
   I.nextSample.upload(std::vector<Real>(traced, I.opt.sampleEvery));
+  if (I.opt.curveEvery > 0) {
+    I.curveMax = static_cast<int>(std::floor(I.opt.tMax / I.opt.curveEvery)) + 2;
+    I.curveRec.allocate(count * static_cast<std::size_t>(I.curveMax) * kCurveValues);
+    I.curveCount.upload(std::vector<int>(count, 0));
+    I.nextCurve.upload(std::vector<Real>(count, 0));   // the first record is the initial state, as in the oracle's run
+  }
 
   const ShipView ship = I.shipView();
   const DevSim sim = I.devSim();
   const DevBatch batch = I.devBatch();
-  if (I.layout.total > 48 * 1024)
-    check(cudaFuncSetAttribute(run_chunk, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(I.layout.total)), "cudaFuncSetAttribute");
+  if (I.layout.total > 48 * 1024) {
+    check(cudaFuncSetAttribute(run_chunk<true>, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(I.layout.total)), "cudaFuncSetAttribute");
+    check(cudaFuncSetAttribute(run_chunk<false>, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(I.layout.total)), "cudaFuncSetAttribute");
+  }
 
   const auto t0 = std::chrono::steady_clock::now();
   int firstLaunch = 1;
   for (;;) {
-    run_chunk<<<I.opt.count, kBlockThreads, I.layout.total>>>(ship, sim, batch, I.layout, I.opt.stepsPerLaunch, I.opt.tMax, firstLaunch);
+    if (I.opt.mixedPrecision)
+      run_chunk<true><<<I.opt.count, kBlockThreads, I.layout.total>>>(ship, sim, batch, I.layout, I.opt.stepsPerLaunch, I.opt.tMax, firstLaunch);
+    else
+      run_chunk<false><<<I.opt.count, kBlockThreads, I.layout.total>>>(ship, sim, batch, I.layout, I.opt.stepsPerLaunch, I.opt.tMax, firstLaunch);
     check(cudaGetLastError(), "kernel launch");
     check(cudaDeviceSynchronize(), "kernel execution");
     firstLaunch = 0;
@@ -322,7 +338,7 @@ io::Trace Batch::trace(Index instance) const {
   const auto rec = static_cast<std::size_t>(I.recSize);
   io::Trace tr;
   tr.ship = I.ship->id; tr.sim = I.sim.id; tr.title = I.sim.title;
-  tr.producer = "sinksim CUDA engine, numerics portable";
+  tr.producer = I.opt.mixedPrecision ? "sinksim CUDA engine, numerics portable32" : "sinksim CUDA engine, numerics portable";
   const DeviceInfo info = device_info();
   tr.engine = "sinksim " + std::to_string(kEngineVersion.major) + "." + std::to_string(kEngineVersion.minor) + "." + std::to_string(kEngineVersion.patch) + " on " + info.name;
   tr.dt = I.sim.dt; tr.nodes = I.NN; tr.denseSteps = I.opt.denseSteps; tr.sampleEvery = I.opt.sampleEvery;
@@ -348,6 +364,39 @@ io::Trace Batch::trace(Index instance) const {
   unpack(dense, i * static_cast<std::size_t>(I.opt.denseSteps + 1) * rec, I.denseCount.download()[i], tr.dense);
   unpack(samples, i * static_cast<std::size_t>(I.maxSamples) * rec, I.sampleCount.download()[i], tr.samples);
   return tr;
+}
+
+CurveSample Batch::final_readouts(Index instance) const {
+  const Impl& I = *impl_;
+  const InstanceResult r = result(instance);
+  // the same function the device uses, on the host, with the portable math: the bits are identical
+  const ShipView ship = I.ship->view();
+  SimView M{};
+  M.phys = I.sim.phys; M.dt = I.sim.dt; M.body = I.sim.body;
+  State st{};
+  st.t = r.t; st.zO = r.zO; st.pitch = r.pitch; st.roll = r.roll; st.vz = r.vz; st.wth = r.wth; st.wph = r.wph;
+  std::vector<Real> vol = r.vol, level = r.level;
+  st.vol = vol.data(); st.level = level.data();
+  const kernel::Readouts ro = kernel::readouts<PortableMath>(ship, M, I.sim.readout, st, r.outputs);
+  return CurveSample{ro.t, ro.trimDeg, ro.listDeg, ro.waterT, ro.inflowTpm, ro.draftF, ro.draftA};
+}
+
+std::vector<CurveSample> Batch::curve(Index instance) const {
+  const Impl& I = *impl_;
+  if (!I.ran) throw std::logic_error("cuda::Batch: curve before run");
+  if (I.opt.curveEvery <= 0) throw std::logic_error("cuda::Batch: curves were not recorded (curveEvery is 0)");
+  if (instance < 0 || instance >= I.opt.count) throw std::out_of_range("cuda::Batch: instance");
+  const auto i = static_cast<std::size_t>(instance);
+  const std::vector<Real> all = I.curveRec.download();
+  const int n = I.curveCount.download()[i];
+  std::vector<CurveSample> out;
+  out.reserve(static_cast<std::size_t>(n) + 1);
+  for (int k = 0; k < n; ++k) {
+    const Real* p = all.data() + (i * static_cast<std::size_t>(I.curveMax) + static_cast<std::size_t>(k)) * kCurveValues;
+    out.push_back(CurveSample{p[0], p[1], p[2], p[3], p[4], p[5], p[6]});
+  }
+  out.push_back(final_readouts(instance));
+  return out;
 }
 
 std::string Batch::event_id(const Event& e) const {

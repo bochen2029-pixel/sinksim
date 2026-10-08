@@ -17,6 +17,7 @@ const char* numerics_name(Numerics n) {
   switch (n) {
     case Numerics::Oracle: return "oracle";
     case Numerics::Portable: return "portable";
+    case Numerics::PortableMixed: return "portable32";
     case Numerics::Std: return "std";
   }
   return "?";
@@ -25,6 +26,7 @@ const char* numerics_name(Numerics n) {
 bool parse_numerics(const std::string& s, Numerics& out) {
   if (s == "oracle") { out = Numerics::Oracle; return true; }
   if (s == "portable") { out = Numerics::Portable; return true; }
+  if (s == "portable32") { out = Numerics::PortableMixed; return true; }
   if (s == "std") { out = Numerics::Std; return true; }
   return false;
 }
@@ -109,24 +111,26 @@ void Simulation::reset_events() {
 Frame Simulation::frame_now() const {
   switch (numerics_) {
     case Numerics::Oracle: return kernel::pose_frame<OracleMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
-    case Numerics::Portable: return kernel::pose_frame<PortableMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
+    case Numerics::Portable:
+    case Numerics::PortableMixed: return kernel::pose_frame<PortableMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
     case Numerics::Std: return kernel::pose_frame<StdMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
   }
   return kernel::pose_frame<OracleMath>(simView_.body, st_.zO, st_.pitch, st_.roll);
 }
 
 Buoyancy Simulation::hydro_at(const Frame& F) const {
-  if (numerics_ == Numerics::Portable) return kernel::hydro_pass_tree<kernel::kBlockThreads>(shipView_.cols, F);
-  return kernel::hydro_pass(shipView_.cols, F);
+  switch (numerics_) {
+    case Numerics::Portable: return kernel::hydro_pass_ordered<kernel::Order::Tree>(shipView_.cols, F);
+    case Numerics::PortableMixed: return kernel::hydro_pass_ordered<kernel::Order::TreeMixed>(shipView_.cols, F);
+    default: return kernel::hydro_pass_ordered<kernel::Order::Serial>(shipView_.cols, F);
+  }
 }
 
 void Simulation::solve_levels_full(const Frame& F) {
-  if (numerics_ == Numerics::Portable) {
-    const kernel::TreePasser<kernel::kWarpLanes> pass{shipView_, F};
-    kernel::solve_levels(shipView_.nodes, simView_.groups, F, pass, true, st_, sc_);
-  } else {
-    const kernel::SerialPasser pass{shipView_, F};
-    kernel::solve_levels(shipView_.nodes, simView_.groups, F, pass, true, st_, sc_);
+  switch (numerics_) {
+    case Numerics::Portable: kernel::solve_levels_ordered<kernel::Order::Tree>(shipView_, simView_.groups, F, true, st_, sc_); break;
+    case Numerics::PortableMixed: kernel::solve_levels_ordered<kernel::Order::TreeMixed>(shipView_, simView_.groups, F, true, st_, sc_); break;
+    default: kernel::solve_levels_ordered<kernel::Order::Serial>(shipView_, simView_.groups, F, true, st_, sc_); break;
   }
 }
 
@@ -141,17 +145,20 @@ void Simulation::evaluate_hydro() {
 }
 
 void Simulation::step() {
+  using kernel::Order;
   switch (numerics_) {
-    case Numerics::Oracle: kernel::step<OracleMath, false>(shipView_, simView_, st_, sc_, out_, ev_); break;
-    case Numerics::Portable: kernel::step<PortableMath, true>(shipView_, simView_, st_, sc_, out_, ev_); break;
-    case Numerics::Std: kernel::step<StdMath, false>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::Oracle: kernel::step<OracleMath, Order::Serial>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::Portable: kernel::step<PortableMath, Order::Tree>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::PortableMixed: kernel::step<PortableMath, Order::TreeMixed>(shipView_, simView_, st_, sc_, out_, ev_); break;
+    case Numerics::Std: kernel::step<StdMath, Order::Serial>(shipView_, simView_, st_, sc_, out_, ev_); break;
   }
 }
 
 kernel::Readouts Simulation::readouts() const {
   switch (numerics_) {
     case Numerics::Oracle: return kernel::readouts<OracleMath>(shipView_, simView_, sim_.readout, st_, out_);
-    case Numerics::Portable: return kernel::readouts<PortableMath>(shipView_, simView_, sim_.readout, st_, out_);
+    case Numerics::Portable:
+    case Numerics::PortableMixed: return kernel::readouts<PortableMath>(shipView_, simView_, sim_.readout, st_, out_);
     case Numerics::Std: return kernel::readouts<StdMath>(shipView_, simView_, sim_.readout, st_, out_);
   }
   return kernel::readouts<OracleMath>(shipView_, simView_, sim_.readout, st_, out_);

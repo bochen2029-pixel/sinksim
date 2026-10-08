@@ -26,11 +26,20 @@ DeviceInfo device_info();
 
 struct BatchOptions {
   Index count = 1;                     // simulations in the batch
+  bool mixedPrecision = true;          // single-precision column integrals (numerics "portable32"), the production
+                                       // mode; false computes the double-precision "portable" numerics
   int tracedInstances = 1;             // leading instances that record traces (0 = none)
   int denseSteps = 400;                // dense records at the start of each trace
   Real sampleEvery = 60;               // s between sampled records
+  Real curveEvery = 0;                 // s between readout-curve records for every instance (0 = none)
   Real tMax = 5 * 3600;                // s; every instance stops here if it has not foundered
   std::int64_t stepsPerLaunch = 2000;  // kernel launches are bounded so a display GPU's watchdog never fires
+};
+
+// One record of the readout curve (the oracle's run history): time, trim and list in degrees, water in tonnes,
+// inflow in tonnes per minute, drafts at the perpendiculars in metres.
+struct CurveSample {
+  Real t, trim, list, water, inflow, draftF, draftA;
 };
 
 struct InstanceResult {
@@ -65,6 +74,10 @@ class Batch {
   std::size_t shared_memory_bytes() const;
   InstanceResult result(Index instance) const;
   io::Trace trace(Index instance) const;   // instance < options().tracedInstances
+  // The readout curve recorded on the device (needs curveEvery > 0), closed with a final record at the end of the
+  // run computed on the host with the same portable numerics, as the oracle's run history is.
+  std::vector<CurveSample> curve(Index instance) const;
+  CurveSample final_readouts(Index instance) const;
   std::string event_id(const Event& e) const;
   std::string event_label(const Event& e) const;
 

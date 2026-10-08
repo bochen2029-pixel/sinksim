@@ -16,11 +16,14 @@
 namespace sinksim {
 
 // Which bits the simulation computes (docs/DETERMINISM.md):
-//   Oracle    oracle math (fdlibm sin/cos, the platform CRT's pow as V8 calls it) and the oracle's serial sums;
-//             reproduces the JavaScript model bit for bit on Windows.
-//   Portable  the host-and-device fdlibm port and the GPU's reduction order; the same bits on every CPU and GPU.
-//   Std       the platform <cmath> with serial sums.
-enum class Numerics { Oracle, Portable, Std };
+//   Oracle         oracle math (fdlibm sin/cos, the platform CRT's pow as V8 calls it) and the oracle's serial
+//                  sums; reproduces the JavaScript model bit for bit on Windows.
+//   Portable       the host-and-device fdlibm port and the GPU's reduction order in double precision; the same
+//                  bits on every CPU and on the GPU in double precision.
+//   PortableMixed  the same with single-precision column arithmetic and partial sums ("portable32"); the same
+//                  bits on every CPU and on the GPU in mixed precision, its production mode.
+//   Std            the platform <cmath> with serial sums.
+enum class Numerics { Oracle, Portable, PortableMixed, Std };
 
 const char* numerics_name(Numerics n);
 bool parse_numerics(const std::string& s, Numerics& out);

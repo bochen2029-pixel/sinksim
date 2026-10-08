@@ -1,0 +1,46 @@
+{
+  "format": "sinksim.observations",
+  "formatVersion": 1,
+  "ship": "titanic64",
+  "sim": "titanic",
+  "meta": {
+    "source": "oracle/js/core/scenarios.js OBS (Halpern 2023, eyewitness-derived)",
+    "scenarios_sha256": "3aa1804a8e65040a53eb984a0413cc195927c65bdb0051cb7db8d476ccc86d3c",
+    "engine": "node v24.16.0",
+    "v8": "13.6.233.17-node.49",
+    "platform": "win32-x64",
+    "created": "2026-10-08T14:38:52.570Z"
+  },
+  "units": {
+    "time": "min after 23:40",
+    "trim": "deg bow down",
+    "list": "deg starboard down"
+  },
+  "trim": [{"min":0,"deg":-0.2},{"min":15,"deg":0.8},{"min":30,"deg":1.8},{"min":45,"deg":2.6},{"min":75,"deg":3.2},{"min":100,"deg":4},{"min":130,"deg":5.5},{"min":155,"deg":10}],
+  "list": [{"min":10,"deg":5},{"min":85,"deg":2},{"min":100,"deg":0},{"min":130,"deg":-10},{"min":145,"deg":-15}],
+  "founderMin": 160,
+  "breakupMin": 157,
+  "wildingTonnesIn40Min": 16256.8,
+  "events": [{"id":"overF","label":"Water seen pouring down from E deck at the Turkish baths (bulkhead F)","min":75},{"id":"ports","label":"Second row of ports under the forecastle submerged","min":100},{"id":"well","label":"Forward well deck awash","min":130},{"id":"fcastle","label":"Forecastle head going under","min":145},{"id":"bridge","label":"Bridge goes under; crow's nest at the waterline","min":155}],
+  "objective": {
+    "description": "J = sum((model - obs)/sigma)^2 over trim points (sigma by time band), founder time (sigma 4 min, afloat counts as 300 min), 0.25 * list points (sigma 3 deg, 0 after foundering), and three events (well 130 +- 8, bridge 155 +- 5, overF 75 +- 8); trim after foundering counts as 40 deg; curves are linearly interpolated from a 30 s history",
+    "trimSigmaByMinute": [{"upTo":45,"sigma":0.3},{"upTo":100,"sigma":0.4},{"upTo":130,"sigma":0.7},{"upTo":1000000000,"sigma":1.5}],
+    "trimAfterFounder": 40,
+    "founderSigmaMin": 4,
+    "afloatFounderMin": 300,
+    "listWeight": 0.25,
+    "listSigmaDeg": 3,
+    "listAfterFounder": 0,
+    "events": [{"id":"well","obsMin":130,"sigmaMin":8},{"id":"bridge","obsMin":155,"sigmaMin":5},{"id":"overF","obsMin":75,"sigmaMin":8}],
+    "historyEverySec": 30,
+    "tMaxMin": 260,
+    "bestKnown": {
+      "J": 10.726,
+      "area": 0.7506,
+      "wMul": 1.182,
+      "aDown": 0.2769,
+      "fOpen": 0.01008,
+      "note": "oracle/js/out/calibration_log.txt; the compiled titanic sim already carries these values, so kind scales of 1 reproduce it"
+    }
+  }
+}

@@ -6,7 +6,8 @@ add_library(sinksim_engine STATIC
   src/model.cpp
   src/compiled.cpp
   src/trace.cpp
-  src/simulation.cpp)
+  src/simulation.cpp
+  src/sweep.cpp)
 add_library(sinksim::engine ALIAS sinksim_engine)
 
 target_include_directories(sinksim_engine PUBLIC

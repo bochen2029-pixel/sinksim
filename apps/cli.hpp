@@ -50,12 +50,12 @@ struct Args {
   }
 };
 
-// --numerics oracle|portable|std (default oracle); exits with usage on an unknown value.
+// --numerics oracle|portable|portable32|std (default oracle); exits with usage on an unknown value.
 inline sinksim::Numerics numerics_from(const Args& args) {
   sinksim::Numerics n = sinksim::Numerics::Oracle;
   const std::string s = args.get("numerics", "oracle");
   if (!sinksim::parse_numerics(s, n)) {
-    std::fprintf(stderr, "unknown --numerics %s (use oracle, portable or std)\n", s.c_str());
+    std::fprintf(stderr, "unknown --numerics %s (use oracle, portable, portable32 or std)\n", s.c_str());
     std::exit(2);
   }
   return n;

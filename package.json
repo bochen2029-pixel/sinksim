@@ -12,6 +12,7 @@
     "golden": "node tools/js/golden.js",
     "perstep": "node tools/js/perstep.js",
     "validate:oracle": "node tools/js/validate_oracle.js",
+    "export:observations": "node tools/js/export_observations.js",
     "test": "node --test \"tests/js/**/*.test.js\""
   },
   "license": "MIT"

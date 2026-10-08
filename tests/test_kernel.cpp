@@ -133,9 +133,9 @@ struct Rig {
   Real total() const { Real s = 0; for (const Real v : vol) s += v; return s; }
 };
 
-template <class Math, bool Tree>
+template <class Math, kernel::Order O>
 void breach_run(Rig& rig, int steps) {
-  for (int i = 0; i < steps; ++i) kernel::step<Math, Tree>(rig.S, rig.M, rig.st, rig.sc, rig.out, rig.ev);
+  for (int i = 0; i < steps; ++i) kernel::step<Math, O>(rig.S, rig.M, rig.st, rig.sc, rig.out, rig.ev);
 }
 
 }  // namespace
@@ -173,6 +173,10 @@ int main() {
     CHECK_NEAR(ht.V, hb.V, 1e-9);
     CHECK_NEAR(ht.z, hb.z, 1e-12);
     CHECK_EQ(ht.top, hb.top);
+    const Buoyancy hm = kernel::hydro_pass_tree_mixed<kernel::kBlockThreads>(rig.S.cols, rig.frame());
+    CHECK_NEAR(hm.V, hb.V, 1e-3 * hb.V);   // single-precision partials: about seven digits
+    CHECK_NEAR(hm.z, hb.z, 1e-5);
+    CHECK_NEAR(hm.top, hb.top, 1e-5);
     // node 0 is the aft half (x from -50 to 0): at world level -1 the water stands 3 m deep in it
     const NodePass p = kernel::node_pass(rig.S, rig.frame(), 0, -1);
     CHECK_NEAR(p.vol, 50.0 * 20 * 3, 1e-9);
@@ -185,6 +189,11 @@ int main() {
     CHECK_NEAR(pt.dv, p.dv, 1e-9);
     CHECK_EQ(pt.zmin, p.zmin);
     CHECK_EQ(pt.zmax, p.zmax);
+    const NodePass pm = kernel::node_pass_tree_mixed<kernel::kWarpLanes>(rig.S, rig.frame(), 0, -1);
+    CHECK_NEAR(pm.vol, p.vol, 1e-3);
+    CHECK_NEAR(pm.dv, p.dv, 1e-3);
+    CHECK_NEAR(pm.zmin, p.zmin, 1e-5);
+    CHECK_NEAR(pm.zmax, p.zmax, 1e-5);
   }
   // Free-surface solve: a known volume gives back the level that produced it
   {
@@ -233,14 +242,19 @@ int main() {
     CHECK(rig.acc[1] <= 2000);
   }
   // A breach into the forward half lets the sea in; the inflow accounting matches the water that appears; a
-  // floor-level orifice passes water aft; the barge settles deeper and by the head. Both numerics agree.
+  // floor-level orifice passes water aft; the barge settles deeper and by the head. All three orders agree.
   Real totalOracle = 0, pitchOracle = 0;
-  for (int pass = 0; pass < 2; ++pass) {
+  for (int pass = 0; pass < 3; ++pass) {
     Rig rig(100, 20, 10, 4, 5, 1, 2, false);
     rig.connect(-1, 1, FlowLaw::Orifice, 40, -10, 1.0, 0.5, 0.6);   // sea -> forward node, 3 m below the waterline
     rig.connect(1, 0, FlowLaw::Orifice, 0, 0, 0.0, 1.0, 0.6);       // forward -> aft, at floor level amidships
     rig.bind();
-    if (pass == 0) breach_run<OracleMath, false>(rig, 1); else breach_run<PortableMath, true>(rig, 1);
+    auto advance = [&](int n) {
+      if (pass == 0) breach_run<OracleMath, kernel::Order::Serial>(rig, n);
+      else if (pass == 1) breach_run<PortableMath, kernel::Order::Tree>(rig, n);
+      else breach_run<PortableMath, kernel::Order::TreeMixed>(rig, n);
+    };
+    advance(1);
     CHECK_EQ(rig.st.t, kDt);
     CHECK(rig.vol[1] > 0);
     CHECK_EQ(rig.vol[0], 0.0);
@@ -250,7 +264,7 @@ int main() {
     CHECK(std::fabs(rig.st.vz) < 1e-3);
     Real seaTotal = rig.out.inflow * kDt;
     for (int i = 0; i < 1200; ++i) {
-      if (pass == 0) breach_run<OracleMath, false>(rig, 1); else breach_run<PortableMath, true>(rig, 1);
+      advance(1);
       seaTotal += rig.out.inflow * kDt;
     }
     CHECK(rig.vol[0] > 0);
@@ -263,9 +277,12 @@ int main() {
     CHECK_NEAR(r.waterT, rig.total() * kRho / 1000, 1e-9);
     CHECK(r.draftF > r.draftA);
     if (pass == 0) { totalOracle = rig.total(); pitchOracle = rig.st.pitch; }
-    else {
+    else if (pass == 1) {
       CHECK_NEAR(rig.total(), totalOracle, 1e-6 * totalOracle);
       CHECK_NEAR(rig.st.pitch, pitchOracle, 1e-9);
+    } else {
+      CHECK_NEAR(rig.total(), totalOracle, 1e-4 * totalOracle);
+      CHECK_NEAR(rig.st.pitch, pitchOracle, 1e-6);
     }
   }
   return test::finish("test_kernel");

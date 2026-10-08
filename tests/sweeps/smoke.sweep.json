@@ -1,0 +1,16 @@
+{
+  "format": "sinksim.sweep",
+  "formatVersion": 1,
+  "ship": "titanic64.ship.json",
+  "sim": "titanic.sim.json",
+  "tMax": 15600,
+  "every": 30,
+  "stopWhenStable": false,
+  "instances": [
+    { "id": "base" },
+    { "id": "damage-110", "scale": { "breach": 1.1 } },
+    { "id": "narrow-alleys", "scale": { "over": 0.8, "down": 1.2 } },
+    { "id": "doors-D-E-open", "connections": [ { "kind": "door", "idx": 3, "enabled": true }, { "kind": "door", "idx": 4, "enabled": true } ] },
+    { "id": "last-breach-2.4m2-from-50min", "connections": [ { "conn": 289, "area": 2.4, "tOn": 3000 } ] }
+  ]
+}

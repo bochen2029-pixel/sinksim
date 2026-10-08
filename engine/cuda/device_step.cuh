@@ -13,6 +13,7 @@
 #include "sinksim/kernel/hydro.hpp"
 #include "sinksim/kernel/levels.hpp"
 #include "sinksim/kernel/math.hpp"
+#include "sinksim/kernel/readouts.hpp"
 #include "sinksim/kernel/reduce.hpp"
 #include "sinksim/kernel/types.hpp"
 
@@ -36,6 +37,7 @@ struct DevSim {
   MarksView marks;
   FounderRule founder;
   Body body;
+  ReadoutGeometry readout;
   Index nNodes, nGroups, maxGroup, nMon, nMarks, evCap;
 };
 
@@ -52,7 +54,13 @@ struct DevBatch {
   int traced; int denseSteps; Real sampleEvery; int maxSamples; int recSize;
   Real* denseRec; Real* sampleRec;                                  // traced * (denseSteps + 1) * recSize, traced * maxSamples * recSize
   int* denseCount; int* sampleCount; Real* nextSample;              // traced
+  // readout curve of every instance (the oracle's run history): 7 values per record, recorded when t >= nextCurve
+  Real curveEvery; int curveMax;                                    // curveEvery <= 0 disables
+  Real* curveRec;                                                   // count * curveMax * 7
+  int* curveCount; Real* nextCurve;                                 // count
 };
+
+constexpr int kCurveValues = 7;
 
 // Byte offsets of everything that lives in shared memory for one block.
 struct SmemLayout {
@@ -132,6 +140,43 @@ __device__ inline void warp_broadcast(PassPartial& p) {
   p.zmax = __shfl_sync(kFullMask, p.zmax, 0);
 }
 
+// Single-precision counterparts (mixed precision, reduce.hpp).
+__device__ inline void warp_tree(HydroPartialF& p, int lane) {
+  for (int off = kWarpLanes / 2; off > 0; off >>= 1) {
+    HydroPartialF o;
+    o.V = __shfl_down_sync(kFullMask, p.V, off);
+    o.Mx = __shfl_down_sync(kFullMask, p.Mx, off);
+    o.My = __shfl_down_sync(kFullMask, p.My, off);
+    o.Mz = __shfl_down_sync(kFullMask, p.Mz, off);
+    o.top = __shfl_down_sync(kFullMask, p.top, off);
+    if (lane < off) combine(p, o);
+  }
+}
+
+__device__ inline void warp_tree(PassPartialF& p, int lane) {
+  for (int off = kWarpLanes / 2; off > 0; off >>= 1) {
+    PassPartialF o;
+    o.vol = __shfl_down_sync(kFullMask, p.vol, off);
+    o.dv = __shfl_down_sync(kFullMask, p.dv, off);
+    o.mx = __shfl_down_sync(kFullMask, p.mx, off);
+    o.my = __shfl_down_sync(kFullMask, p.my, off);
+    o.mz = __shfl_down_sync(kFullMask, p.mz, off);
+    o.zmin = __shfl_down_sync(kFullMask, p.zmin, off);
+    o.zmax = __shfl_down_sync(kFullMask, p.zmax, off);
+    if (lane < off) combine(p, o);
+  }
+}
+
+__device__ inline void warp_broadcast(PassPartialF& p) {
+  p.vol = __shfl_sync(kFullMask, p.vol, 0);
+  p.dv = __shfl_sync(kFullMask, p.dv, 0);
+  p.mx = __shfl_sync(kFullMask, p.mx, 0);
+  p.my = __shfl_sync(kFullMask, p.my, 0);
+  p.mz = __shfl_sync(kFullMask, p.mz, 0);
+  p.zmin = __shfl_sync(kFullMask, p.zmin, 0);
+  p.zmax = __shfl_sync(kFullMask, p.zmax, 0);
+}
+
 // The node pass done by one warp: lane partials over strided segments, the tree, the result in every lane.
 struct WarpPasser {
   const ShipView& S;
@@ -145,6 +190,24 @@ struct WarpPasser {
     warp_tree(p, lane);
     warp_broadcast(p);
     return finish_pass(S, n, iR, p);
+  }
+};
+
+// The same in mixed precision: single-precision lane partials and tree, the finished totals in double.
+struct WarpPasserMixed {
+  const ShipView& S;
+  const Frame& F;
+  FrameF f;
+  int lane;
+  __device__ WarpPasserMixed(const ShipView& S_, const Frame& F_, int lane_) : S(S_), F(F_), f(frame_f(F_)), lane(lane_) {}
+  __device__ NodePass operator()(Index n, Real h) const {
+    const Index s0 = S.nodes.segStart[n], s1 = s0 + S.nodes.segCount[n];
+    const float hf = static_cast<float>(h);
+    PassPartialF p = pass_zero_f();
+    for (Index j = s0 + lane; j < s1; j += kWarpLanes) pass_segment_f(S, f, hf, j, p);
+    warp_tree(p, lane);
+    warp_broadcast(p);
+    return finish_pass(S, n, 1 / F.R22, widen(p));
   }
 };
 
@@ -165,12 +228,20 @@ struct BlockContext {
 };
 
 // Pose and buoyancy at the current state: thread 0 sets the frame, every thread sums columns, the warps and
-// then thread 0 combine in the canonical order.
+// then thread 0 combine in the canonical order. In mixed precision the thread partials and the warp trees are
+// single precision and the warp results are widened before thread 0 combines them, as the CPU emulation does.
+template <bool Mixed>
 __device__ inline void block_pose_and_hydro(BlockContext& C) {
   const int tid = threadIdx.x, warp = tid / kWarpLanes, lane = tid % kWarpLanes;
   if (tid == 0) *C.F = pose_frame<PortableMath>(C.M.body, C.st->zO, C.st->pitch, C.st->roll);
   __syncthreads();
-  {
+  if constexpr (Mixed) {
+    const FrameF f = frame_f(*C.F);
+    HydroPartialF p = hydro_zero_f();
+    for (Index i = tid; i < C.ship.cols.n; i += kBlockThreads) hydro_column_f(C.ship.cols, f, i, p);
+    warp_tree(p, lane);
+    if (lane == 0) C.warpHydro[warp] = widen(p);
+  } else {
     HydroPartial p = hydro_zero();
     const Real iR = 1 / C.F->R22;
     for (Index i = tid; i < C.ship.cols.n; i += kBlockThreads) hydro_column(C.ship.cols, *C.F, iR, i, p);
@@ -186,21 +257,27 @@ __device__ inline void block_pose_and_hydro(BlockContext& C) {
   __syncthreads();
 }
 
+template <bool Mixed>
 __device__ inline void device_step(BlockContext& C) {
   const int tid = threadIdx.x, warp = tid / kWarpLanes, lane = tid % kWarpLanes;
   const Index NN = C.ship.nodes.n, NC = C.M.conns.n, NG = C.M.groups.n;
   State& st = *C.st;
   Outputs& out = *C.out;
 
-  block_pose_and_hydro(C);
+  block_pose_and_hydro<Mixed>(C);
   const Frame& F = *C.F;
 
   // free surfaces: one warp per group
   {
     Scratch scw = C.sc;
     scw.passes = C.passesBase + warp * C.maxGroup;
-    const WarpPasser pass{C.ship, F, lane};
-    for (Index g = warp; g < NG; g += kBlockWarps) solve_group_entry(C.ship.nodes, C.M.groups, F, pass, false, st, scw, g);
+    if constexpr (Mixed) {
+      const WarpPasserMixed pass(C.ship, F, lane);
+      for (Index g = warp; g < NG; g += kBlockWarps) solve_group_entry(C.ship.nodes, C.M.groups, F, pass, false, st, scw, g);
+    } else {
+      const WarpPasser pass{C.ship, F, lane};
+      for (Index g = warp; g < NG; g += kBlockWarps) solve_group_entry(C.ship.nodes, C.M.groups, F, pass, false, st, scw, g);
+    }
   }
   __syncthreads();
 
@@ -243,6 +320,7 @@ __device__ inline void write_record(Real* rec, const State& st, const Outputs& o
   for (Index n = 0; n < NN; ++n) p[n] = sc.cz[n];
 }
 
+template <bool Mixed>
 __global__ void __launch_bounds__(kBlockThreads) run_chunk(ShipView ship, DevSim sim, DevBatch batch, SmemLayout L, long long maxSteps, Real tMax, int firstLaunch) {
   extern __shared__ unsigned char smem[];
   const int inst = blockIdx.x;
@@ -302,7 +380,7 @@ __global__ void __launch_bounds__(kBlockThreads) run_chunk(ShipView ship, DevSim
   long long done = batch.steps[inst];
   if (firstLaunch && traced) {
     // the initial record: buoyancy at the initial pose, no inflow yet
-    block_pose_and_hydro(C);
+    block_pose_and_hydro<Mixed>(C);
     if (tid == 0) {
       C.out->inflow = 0; C.out->Vb = C.hb->V; C.out->hullTop = C.hb->top; C.out->bx = C.hb->x; C.out->by = C.hb->y; C.out->bz = C.hb->z;
       write_record(batch.denseRec + static_cast<std::size_t>(inst) * (batch.denseSteps + 1) * batch.recSize, *C.st, *C.out, C.sc, NN);
@@ -314,7 +392,14 @@ __global__ void __launch_bounds__(kBlockThreads) run_chunk(ShipView ship, DevSim
 
   for (long long s = 0; s < maxSteps; ++s) {
     if (C.ev->foundered || C.st->t >= tMax) break;   // uniform: shared values read by every thread
-    device_step(C);
+    if (batch.curveEvery > 0 && tid == 0 && C.st->t >= batch.nextCurve[inst] && batch.curveCount[inst] < batch.curveMax) {
+      const Readouts r = readouts<PortableMath>(C.ship, C.M, sim.readout, *C.st, *C.out);
+      Real* rec = batch.curveRec + (static_cast<std::size_t>(inst) * batch.curveMax + batch.curveCount[inst]) * kCurveValues;
+      rec[0] = r.t; rec[1] = r.trimDeg; rec[2] = r.listDeg; rec[3] = r.waterT; rec[4] = r.inflowTpm; rec[5] = r.draftF; rec[6] = r.draftA;
+      batch.curveCount[inst]++;
+      batch.nextCurve[inst] += batch.curveEvery;
+    }
+    device_step<Mixed>(C);
     ++done;
     if (traced && tid == 0) {
       if (done <= batch.denseSteps) {
