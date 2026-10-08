@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.25)
+
+project(sinksim
+  VERSION 0.1.0
+  DESCRIPTION "Deterministic time-domain ship flooding and sinking simulator"
+  LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+option(SINKSIM_BUILD_APPS "Build the command-line tools" ON)
+option(SINKSIM_BUILD_TESTS "Build and register the tests" ON)
+option(SINKSIM_ENABLE_CUDA "Build the CUDA batch engine (roadmap phase 2, not yet implemented)" OFF)
+
+# Transcendental functions of the kernel (engine/include/sinksim/kernel/math.hpp, third_party/README.md):
+#   v8  = vendored fdlibm sin/cos and V8's pow semantics; reproduces the Node 24 oracle bit for bit on Windows
+#   std = the platform <cmath>
+set(SINKSIM_MATH "v8" CACHE STRING "Kernel math implementation: v8 or std")
+set_property(CACHE SINKSIM_MATH PROPERTY STRINGS v8 std)
+
+# Tolerances for the golden test; docs/DETERMINISM.md records the measured values behind them.
+set(SINKSIM_GOLDEN_TOL_STEP "0" CACHE STRING "Largest allowed difference after one step from a golden record")
+set(SINKSIM_GOLDEN_TOL_WINDOW "0" CACHE STRING "Largest allowed difference after one sampled window from a golden record")
+
+include(cmake/StrictFloatingPoint.cmake)
+
+add_subdirectory(third_party/fdlibm)
+add_subdirectory(engine)
+if(SINKSIM_BUILD_APPS)
+  add_subdirectory(apps)
+endif()
+if(SINKSIM_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

@@ -1,0 +1,59 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "msvc-release",
+      "inherits": "base",
+      "displayName": "MSVC x64 Release (Ninja; run inside a Visual Studio x64 developer environment or via tools/build/msvc.cmd)",
+      "generator": "Ninja",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_CXX_COMPILER": "cl" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "msvc-debug",
+      "inherits": "msvc-release",
+      "displayName": "MSVC x64 Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "CMAKE_CXX_COMPILER": "cl" }
+    },
+    {
+      "name": "msvc-relwithdebinfo",
+      "inherits": "msvc-release",
+      "displayName": "MSVC x64 RelWithDebInfo",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_CXX_COMPILER": "cl" }
+    },
+    {
+      "name": "gcc-release",
+      "inherits": "base",
+      "displayName": "GCC Release (Linux, WSL)",
+      "generator": "Unix Makefiles",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_CXX_COMPILER": "g++" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "gcc-debug",
+      "inherits": "gcc-release",
+      "displayName": "GCC Debug (Linux, WSL)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "CMAKE_CXX_COMPILER": "g++" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "msvc-release", "configurePreset": "msvc-release" },
+    { "name": "msvc-debug", "configurePreset": "msvc-debug" },
+    { "name": "msvc-relwithdebinfo", "configurePreset": "msvc-relwithdebinfo" },
+    { "name": "gcc-release", "configurePreset": "gcc-release" },
+    { "name": "gcc-debug", "configurePreset": "gcc-debug" }
+  ],
+  "testPresets": [
+    { "name": "msvc-release", "configurePreset": "msvc-release", "output": { "outputOnFailure": true } },
+    { "name": "msvc-debug", "configurePreset": "msvc-debug", "output": { "outputOnFailure": true } },
+    { "name": "msvc-relwithdebinfo", "configurePreset": "msvc-relwithdebinfo", "output": { "outputOnFailure": true } },
+    { "name": "gcc-release", "configurePreset": "gcc-release", "output": { "outputOnFailure": true } },
+    { "name": "gcc-debug", "configurePreset": "gcc-debug", "output": { "outputOnFailure": true } }
+  ]
+}

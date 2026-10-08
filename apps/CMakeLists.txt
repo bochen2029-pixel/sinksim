@@ -1,0 +1,5 @@
+foreach(app sinksim_run sinksim_check sinksim_validate)
+  add_executable(${app} ${app}.cpp)
+  target_link_libraries(${app} PRIVATE sinksim::engine)
+  set_target_properties(${app} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endforeach()
