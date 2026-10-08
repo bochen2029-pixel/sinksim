@@ -9,9 +9,10 @@ Updated 2026-10-08 at the end of the second session (phase 2). Read this first; 
   hundreds of simulations per launch and is checked bit for bit against the CPU.
 - Builds verified: Windows (Visual Studio 2022 17.14, MSVC 19.44, CMake 4.3, Ninja, CUDA 13.1 on an RTX 4070 Ti
   SUPER) and Linux (WSL Ubuntu 24.04, GCC 13.3). All tests pass on both: 7 on the CPU presets, 9 on the CUDA preset.
-- License MIT. The parent folder of this tree is the public JavaScript repository
-  `github.com/bochen2029-pixel/titanic-sinking-simulator`, which lists `sinksim/` as an ignored companion; this tree
-  is committed locally and has no remote yet.
+- License MIT. Published as `github.com/bochen2029-pixel/sinksim` (pushed 2026-10-08). The parent folder of this
+  tree is the public JavaScript repository `github.com/bochen2029-pixel/titanic-sinking-simulator`, which lists
+  `sinksim/` as an ignored companion; that repository's model is now byte-identical to `oracle/js` (the `hydroPass`
+  export and the calibrated default were folded in upstream).
 
 ## Measured
 
